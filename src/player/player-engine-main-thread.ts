@@ -228,6 +228,9 @@ class PlayerEngineMainThread implements PlayerEngine {
         this._transmuxer.on(TransmuxingEvents.SCRIPTDATA_ARRIVED, (data: any) => {
             this._emitter.emit(PlayerEvents.SCRIPTDATA_ARRIVED, data);
         });
+        this._transmuxer.on((TransmuxingEvents as any).TRACKS_UPDATED, (data: any) => {
+            this._emitter.emit((PlayerEvents as any).TRACKS_UPDATED, data);
+        });
         this._transmuxer.on(TransmuxingEvents.TIMED_ID3_METADATA_ARRIVED, (timed_id3_metadata: any) => {
             this._emitter.emit(PlayerEvents.TIMED_ID3_METADATA_ARRIVED, timed_id3_metadata);
         });
@@ -447,6 +450,12 @@ class PlayerEngineMainThread implements PlayerEngine {
         }
 
         return stat_info;
+    }
+
+    public switchAudioPid(pid: number): void {
+        if (this._transmuxer) {
+            (this._transmuxer as any).switchAudioPid(pid);
+        }
     }
 
 }

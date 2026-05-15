@@ -25,5 +25,6 @@ declare class MSEPlayer {
     set currentTime(seconds: number);
     get mediaInfo(): MediaInfo;
     get statisticsInfo(): any;
+    switchAudioPid(pid: number): void;
 }
 export default MSEPlayer;

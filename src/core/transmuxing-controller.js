@@ -169,6 +169,12 @@ class TransmuxingController {
         }
     }
 
+    switchAudioPid(pid) {
+        if (this._demuxer && typeof this._demuxer.selectAudioPid === 'function') {
+            this._demuxer.selectAudioPid(pid);
+        }
+    }
+
     seek(milliseconds) {
         if (this._mediaInfo == null || !this._mediaInfo.isSeekable()) {
             return;
@@ -303,6 +309,7 @@ class TransmuxingController {
         this._demuxer.onMediaInfo = this._onMediaInfo.bind(this);
         this._demuxer.onMetaDataArrived = this._onMetaDataArrived.bind(this);
         this._demuxer.onScriptDataArrived = this._onScriptDataArrived.bind(this);
+        this._demuxer.onTracksUpdated = this._onTracksUpdated.bind(this);
         this._demuxer.onSeiArrived = this._onSEI.bind(this);
 
         this._remuxer.bindDataSource(this._demuxer
@@ -372,6 +379,10 @@ class TransmuxingController {
 
     _onScriptDataArrived(data) {
         this._emitter.emit(TransmuxingEvents.SCRIPTDATA_ARRIVED, data);
+    }
+
+    _onTracksUpdated(data) {
+        this._emitter.emit(TransmuxingEvents.TRACKS_UPDATED, data);
     }
 
     _onTimedID3Metadata(timed_id3_metadata) {

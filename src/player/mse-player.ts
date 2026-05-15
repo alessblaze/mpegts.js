@@ -141,6 +141,10 @@ class MSEPlayer {
         return this._player_engine.statisticsInfo;
     }
 
+    public switchAudioPid(pid: number): void {
+        this._player_engine.switchAudioPid(pid);
+    }
+
 }
 
 export default MSEPlayer;

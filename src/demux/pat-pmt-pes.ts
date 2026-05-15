@@ -95,6 +95,9 @@ export class PMT {
     // All subtitle/teletext streams discovered in the PMT.
     // Each entry: { pid, type: 'pgs'|'timed_id3'|'teletext', lang? }
     subtitle_pids: Array<{pid: number, type: string, lang?: string}> = [];
+
+    // Tracks which sections of this version have been parsed
+    parsed_sections: {[section_number: number]: boolean} = {};
 }
 
 export interface ProgramToPMTMap {

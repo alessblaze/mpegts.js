@@ -465,6 +465,15 @@ class PlayerEngineDedicatedThread implements PlayerEngine {
         return stat_info;
     }
 
+    public switchAudioPid(pid: number): void {
+        if (this._worker && !this._worker_destroying) {
+            this._worker.postMessage({
+                cmd: 'switch_audio_pid',
+                pid: pid
+            });
+        }
+    }
+
 }
 
 export default PlayerEngineDedicatedThread;

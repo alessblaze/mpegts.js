@@ -113,6 +113,12 @@ const PlayerEngineWorker = (self: DedicatedWorkerGlobalScope) => {
                 transmuxer.seek(packet.milliseconds);
                 break;
             }
+            case 'switch_audio_pid': {
+                if (transmuxer) {
+                    (transmuxer as any).switchAudioPid((command_packet as any).pid);
+                }
+                break;
+            }
             case 'timeupdate': {
                 const packet = command_packet as WorkerCommandPacketTimeUpdate;
                 media_element_current_time = packet.current_time;
@@ -248,6 +254,9 @@ const PlayerEngineWorker = (self: DedicatedWorkerGlobalScope) => {
         });
         transmuxer.on(TransmuxingEvents.SCRIPTDATA_ARRIVED, (data: any) => {
             emitPlayerEventsExtraData(PlayerEvents.SCRIPTDATA_ARRIVED, data);
+        });
+        transmuxer.on((TransmuxingEvents as any).TRACKS_UPDATED, (data: any) => {
+            emitPlayerEventsExtraData((PlayerEvents as any).TRACKS_UPDATED, data);
         });
         transmuxer.on(TransmuxingEvents.TIMED_ID3_METADATA_ARRIVED, (timed_id3_metadata: any) => {
             emitPlayerEventsExtraData(PlayerEvents.TIMED_ID3_METADATA_ARRIVED, timed_id3_metadata);

@@ -45,5 +45,6 @@ declare class PlayerEngineMainThread implements PlayerEngine {
     private _onRequestPauseTransmuxer;
     private _onRequestResumeTransmuxer;
     private _fillStatisticsInfo;
+    switchAudioPid(pid: number): void;
 }
 export default PlayerEngineMainThread;

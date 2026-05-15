@@ -43,5 +43,6 @@ declare class PlayerEngineDedicatedThread implements PlayerEngine {
     private _onMediaReadyStateChange;
     private _onWorkerMessage;
     private _fillStatisticsInfo;
+    switchAudioPid(pid: number): void;
 }
 export default PlayerEngineDedicatedThread;

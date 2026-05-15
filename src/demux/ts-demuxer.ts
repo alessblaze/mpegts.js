@@ -806,16 +806,28 @@ class TSDemuxer extends BaseDemuxer {
 
         let pmt: PMT = null;
 
+        let existing_pmt = this.program_pmt_map_[program_number];
+        if (existing_pmt && existing_pmt.version_number === version_number) {
+            if (existing_pmt.parsed_sections && existing_pmt.parsed_sections[section_number]) {
+                // Already parsed this section of the PMT
+                return;
+            }
+        }
+
+        let is_new_pmt = false;
         if (current_next_indicator === 1 && section_number === 0) {
             pmt = new PMT();
             pmt.program_number = program_number;
             pmt.version_number = version_number;
+            pmt.parsed_sections[section_number] = true;
             this.program_pmt_map_[program_number] = pmt;
+            is_new_pmt = true;
         } else {
             pmt = this.program_pmt_map_[program_number];
             if (pmt == undefined) {
                 return;
             }
+            pmt.parsed_sections[section_number] = true;
         }
 
         pmt.pcr_pid = ((data[8] & 0x1F) << 8) | data[9];
@@ -844,6 +856,7 @@ class TSDemuxer extends BaseDemuxer {
                 off += 2 + len;
             }
 
+            let codec_log = '';
             if (stream_type === StreamType.kH264 && !already_has_video) {
                 pmt.common_pids.h264 = elementary_PID;
             } else if (stream_type === StreamType.kH265 && !already_has_video) {
@@ -851,19 +864,30 @@ class TSDemuxer extends BaseDemuxer {
             } else if (stream_type === StreamType.kADTSAAC) {
                 if (!already_has_audio) pmt.common_pids.adts_aac = elementary_PID;
                 pmt.all_audio_pids.push({pid: elementary_PID, codec: 'aac', lang});
+                codec_log = 'aac';
             } else if (stream_type === StreamType.kLOASAAC) {
                 if (!already_has_audio) pmt.common_pids.loas_aac = elementary_PID;
                 pmt.all_audio_pids.push({pid: elementary_PID, codec: 'aac-loas', lang});
+                codec_log = 'aac-loas';
             } else if (stream_type === StreamType.kAC3) {
                 if (!already_has_audio) pmt.common_pids.ac3 = elementary_PID;
                 pmt.all_audio_pids.push({pid: elementary_PID, codec: 'ac3', lang});
+                codec_log = 'ac3';
             } else if (stream_type === StreamType.kEAC3) {
                 if (!already_has_audio) pmt.common_pids.eac3 = elementary_PID;
                 pmt.all_audio_pids.push({pid: elementary_PID, codec: 'eac3', lang});
+                codec_log = 'eac3';
             } else if (stream_type === StreamType.kMPEG1Audio || stream_type === StreamType.kMPEG2Audio) {
                 if (!already_has_audio) pmt.common_pids.mp3 = elementary_PID;
                 pmt.all_audio_pids.push({pid: elementary_PID, codec: 'mp3', lang});
-            } else if (stream_type === StreamType.kPESPrivateData) {
+                codec_log = 'mp3';
+            }
+            
+            if (codec_log && is_new_pmt) {
+                Log.v(this.TAG, `[muvie] PMT parsing: found audio track (codec=${codec_log}, pid=${elementary_PID}, lang=${lang || 'und'}, is_primary=${!already_has_audio})`);
+            }
+            
+            if (stream_type === StreamType.kPESPrivateData) {
                 pmt.pes_private_data_pids[elementary_PID] = true;
                 if (ES_info_length > 0) {
                     // parse descriptor for PES private data
@@ -1004,7 +1028,7 @@ class TSDemuxer extends BaseDemuxer {
                 }
             }
             // Emit available track info to the player layer
-            if (this.onTracksUpdated && (pmt.all_audio_pids.length > 1 || pmt.subtitle_pids.length > 0)) {
+            if (is_new_pmt && this.onTracksUpdated && (pmt.all_audio_pids.length > 1 || pmt.subtitle_pids.length > 0)) {
                 this.onTracksUpdated({
                     audioTracks: pmt.all_audio_pids,
                     subtitleTracks: pmt.subtitle_pids,

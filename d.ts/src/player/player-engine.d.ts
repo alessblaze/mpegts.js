@@ -12,4 +12,5 @@ export default interface PlayerEngine {
     seek(seconds: number): void;
     readonly mediaInfo: MediaInfo | undefined;
     readonly statisticsInfo: any | undefined;
+    switchAudioPid(pid: number): void;
 }

@@ -73,6 +73,9 @@ export declare class PMT {
         type: string;
         lang?: string;
     }>;
+    parsed_sections: {
+        [section_number: number]: boolean;
+    };
 }
 export interface ProgramToPMTMap {
     [program: number]: PMT;

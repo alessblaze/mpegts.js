@@ -62,6 +62,7 @@ class Transmuxer {
             ctl.on(TransmuxingEvents.MEDIA_INFO, this._onMediaInfo.bind(this));
             ctl.on(TransmuxingEvents.METADATA_ARRIVED, this._onMetaDataArrived.bind(this));
             ctl.on(TransmuxingEvents.SCRIPTDATA_ARRIVED, this._onScriptDataArrived.bind(this));
+            ctl.on(TransmuxingEvents.TRACKS_UPDATED, this._onTracksUpdated.bind(this));
             ctl.on(TransmuxingEvents.TIMED_ID3_METADATA_ARRIVED, this._onTimedID3MetadataArrived.bind(this));
             ctl.on(TransmuxingEvents.SYNCHRONOUS_KLV_METADATA_ARRIVED, this._onSynchronousKLVMetadataArrived.bind(this));
             ctl.on(TransmuxingEvents.ASYNCHRONOUS_KLV_METADATA_ARRIVED, this._onAsynchronousKLVMetadataArrived.bind(this));
@@ -143,6 +144,16 @@ class Transmuxer {
         }
     }
 
+    switchAudioPid(pid) {
+        if (this._worker) {
+            this._worker.postMessage({cmd: 'switch_audio_pid', pid: pid});
+        } else {
+            if (typeof this._controller.switchAudioPid === 'function') {
+                this._controller.switchAudioPid(pid);
+            }
+        }
+    }
+
     _onInitSegment(type, initSegment) {
         // do async invoke
         Promise.resolve().then(() => {
@@ -183,6 +194,12 @@ class Transmuxer {
     _onScriptDataArrived(data) {
         Promise.resolve().then(() => {
             this._emitter.emit(TransmuxingEvents.SCRIPTDATA_ARRIVED, data);
+        });
+    }
+
+    _onTracksUpdated(data) {
+        Promise.resolve().then(() => {
+            this._emitter.emit(TransmuxingEvents.TRACKS_UPDATED, data);
         });
     }
 
@@ -296,6 +313,7 @@ class Transmuxer {
                 break;
             case TransmuxingEvents.METADATA_ARRIVED:
             case TransmuxingEvents.SCRIPTDATA_ARRIVED:
+            case TransmuxingEvents.TRACKS_UPDATED:
             case TransmuxingEvents.TIMED_ID3_METADATA_ARRIVED:
             case TransmuxingEvents.PGS_SUBTITLE_ARRIVED:
             case TransmuxingEvents.SYNCHRONOUS_KLV_METADATA_ARRIVED:

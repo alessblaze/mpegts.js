@@ -18,6 +18,7 @@ declare enum TransmuxingEvents {
     PES_PRIVATE_DATA_DESCRIPTOR = "pes_private_data_descriptor",
     PES_PRIVATE_DATA_ARRIVED = "pes_private_data_arrived",
     STATISTICS_INFO = "statistics_info",
+    TRACKS_UPDATED = "tracks_updated",
     RECOMMEND_SEEKPOINT = "recommend_seekpoint"
 }
 export default TransmuxingEvents;
