@@ -1027,6 +1027,19 @@ class TSDemuxer extends BaseDemuxer {
                     pmt.subtitle_pids.push({pid, type: 'timed_id3'});
                 }
             }
+            // Auto-fallback: if primary audio codec is AC-3/E-AC3 (unsupported by browser MSE),
+            // switch to the first compatible alternative (AAC/MP3) without user intervention.
+            if (is_new_pmt && (pmt.common_pids.ac3 || pmt.common_pids.eac3)) {
+                const unsupportedCodec = pmt.common_pids.ac3 ? 'ac-3' : 'ec-3';
+                const fallback = pmt.all_audio_pids.find(a => a.codec === 'aac' || a.codec === 'mp3');
+                if (fallback) {
+                    Log.w(this.TAG, `[muvie] Primary audio is ${unsupportedCodec} (browser-incompatible) — auto-fallback to ${fallback.codec} pid=${fallback.pid} lang=${fallback.lang || 'und'}`);
+                    // Clear the unsupported codec pid so audio data on that pid is ignored
+                    pmt.common_pids.ac3 = 0;
+                    pmt.common_pids.eac3 = 0;
+                    this.selectAudioPid(fallback.pid);
+                }
+            }
             // Emit available track info to the player layer
             if (is_new_pmt && this.onTracksUpdated && (pmt.all_audio_pids.length > 1 || pmt.subtitle_pids.length > 0)) {
                 this.onTracksUpdated({

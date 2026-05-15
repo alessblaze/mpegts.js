@@ -337,7 +337,9 @@ class TransmuxingController {
         demuxer.onSMPTE2038Metadata = this._onSMPTE2038Metadata.bind(this);
         demuxer.onSEI = this._onSEI.bind(this);
         demuxer.onSCTE35Metadata = this._onSCTE35Metadata.bind(this);
+        demuxer.onPESPrivateData = this._onPESPrivateData.bind(this);
         demuxer.onPESPrivateDataDescriptor = this._onPESPrivateDataDescriptor.bind(this);
+        demuxer.onTracksUpdated = this._onTracksUpdated.bind(this);
         demuxer.onPESPrivateData = this._onPESPrivateData.bind(this);
 
         this._remuxer.bindDataSource(this._demuxer);
