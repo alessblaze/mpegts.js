@@ -170,8 +170,13 @@ class TransmuxingController {
     }
 
     switchAudioPid(pid) {
-        if (this._demuxer && typeof this._demuxer.selectAudioPid === 'function') {
-            this._demuxer.selectAudioPid(pid);
+        if (this._demuxer) {
+            if (typeof this._demuxer.setPreferredAudioPid === 'function') {
+                this._demuxer.setPreferredAudioPid(pid);
+            }
+            if (typeof this._demuxer.selectAudioPid === 'function') {
+                this._demuxer.selectAudioPid(pid);
+            }
         }
     }
 

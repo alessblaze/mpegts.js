@@ -65,6 +65,8 @@ declare class TSDemuxer extends BaseDemuxer {
      * Resets audio init state so the new stream is initialised cleanly.
      */
     selectAudioPid(pid: number): void;
+    /** Store a PID preference before PMT arrives — applied by auto-fallback on first parse. */
+    setPreferredAudioPid(pid: number): void;
     /** Returns the current PMT track lists (same data as onTracksUpdated). */
     getAvailableTracks(): {
         audioTracks: {

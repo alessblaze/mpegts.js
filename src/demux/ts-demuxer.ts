@@ -291,6 +291,12 @@ class TSDemuxer extends BaseDemuxer {
         this.aac_last_incomplete_data_ = null;
     }
 
+    /** Store a PID preference before PMT arrives — applied by auto-fallback on first parse. */
+    public setPreferredAudioPid(pid: number): void {
+        this.active_audio_pid_ = pid;
+        Log.v(this.TAG, `[muvie] setPreferredAudioPid: ${pid}`);
+    }
+
     /** Returns the current PMT track lists (same data as onTracksUpdated). */
     public getAvailableTracks() {
         if (!this.pmt_) return {audioTracks: [], subtitleTracks: []};
@@ -1031,7 +1037,17 @@ class TSDemuxer extends BaseDemuxer {
             // switch to the first compatible alternative (AAC/MP3) without user intervention.
             if (is_new_pmt && (pmt.common_pids.ac3 || pmt.common_pids.eac3)) {
                 const unsupportedCodec = pmt.common_pids.ac3 ? 'ac-3' : 'ec-3';
-                const fallback = pmt.all_audio_pids.find(a => a.codec === 'aac' || a.codec === 'mp3');
+                // Check explicit config preference first, then stored active_audio_pid_, then first compatible
+                const cfgPref = this.config_?.preferredAudioPid;
+                let fallback = undefined;
+                if (cfgPref && pmt.all_audio_pids.some(a => a.pid === cfgPref)) {
+                    fallback = pmt.all_audio_pids.find(a => a.pid === cfgPref);
+                } else if (this.active_audio_pid_ && pmt.all_audio_pids.some(a => a.pid === this.active_audio_pid_)) {
+                    fallback = pmt.all_audio_pids.find(a => a.pid === this.active_audio_pid_);
+                }
+                if (!fallback) {
+                    fallback = pmt.all_audio_pids.find(a => a.codec === 'aac' || a.codec === 'mp3');
+                }
                 if (fallback) {
                     Log.w(this.TAG, `[muvie] Primary audio is ${unsupportedCodec} (browser-incompatible) — auto-fallback to ${fallback.codec} pid=${fallback.pid} lang=${fallback.lang || 'und'}`);
                     // Clear the unsupported codec pid so audio data on that pid is ignored

@@ -71,6 +71,13 @@ declare namespace Mpegts {
         isLive?: boolean;
 
         /**
+         * @desc Preferred audio PID for MPEG-TS. When PMT is parsed, the auto-fallback
+         *       will select this PID if it exists among available audio tracks.
+         * @defaultvalue 0 (auto-select first compatible track)
+         */
+        preferredAudioPid?: number;
+
+        /**
          * @desc Chasing the live stream latency caused by the internal buffer in HTMLMediaElement
          *       `isLive` should also be set to `true`
          * @defaultvalue false
