@@ -28,6 +28,11 @@ declare class TSDemuxer extends BaseDemuxer {
     private audio_init_segment_dispatched_;
     private video_metadata_changed_;
     private audio_metadata_changed_;
+    private video_keyframe_seen_after_init_;
+    private stashed_audio_before_video_init_;
+    private _last_dispatch_block_reason_;
+    private video_init_dispatch_time_;
+    private active_audio_pid_;
     private loas_previous_frame;
     private video_track_;
     private audio_track_;
@@ -54,6 +59,25 @@ declare class TSDemuxer extends BaseDemuxer {
     };
     bindDataSource(loader: any): this;
     resetMediaInfo(): void;
+    /**
+     * Switch to a different audio PID discovered in the PMT.
+     * Call with a pid from onTracksUpdated audioTracks, or 0 to revert to default.
+     * Resets audio init state so the new stream is initialised cleanly.
+     */
+    selectAudioPid(pid: number): void;
+    /** Returns the current PMT track lists (same data as onTracksUpdated). */
+    getAvailableTracks(): {
+        audioTracks: {
+            pid: number;
+            codec: string;
+            lang?: string;
+        }[];
+        subtitleTracks: {
+            pid: number;
+            type: string;
+            lang?: string;
+        }[];
+    };
     parseChunks(chunk: ArrayBuffer, byte_start: number): number;
     private handleSectionSlice;
     private handlePESSlice;
@@ -89,6 +113,7 @@ declare class TSDemuxer extends BaseDemuxer {
     private parseSynchronousKLVMetadataPayload;
     private parseAsynchronousKLVMetadataPayload;
     private parseSMPTE2038MetadataPayload;
+    private parseSEIPayload;
     private getNearestTimestampMilliseconds;
     private getPcrBase;
     private getTimestamp;

@@ -87,6 +87,14 @@ export class PMT {
     smpte2038_pids: {
         [oid: number]: boolean
     } = {};
+
+    // All discovered audio streams (including secondary/alternate languages).
+    // Each entry: { pid, codec, lang? }
+    all_audio_pids: Array<{pid: number, codec: string, lang?: string}> = [];
+
+    // All subtitle/teletext streams discovered in the PMT.
+    // Each entry: { pid, type: 'pgs'|'timed_id3'|'teletext', lang? }
+    subtitle_pids: Array<{pid: number, type: string, lang?: string}> = [];
 }
 
 export interface ProgramToPMTMap {

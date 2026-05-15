@@ -20,6 +20,11 @@ type OnSEICallback = (sei_data: SEIData) => void;
 type OnSCTE35MetadataCallback = (scte35_data: SCTE35Data) => void;
 type OnPESPrivateDataCallback = (private_data: PESPrivateData) => void;
 type OnPESPrivateDataDescriptorCallback = (private_data_descriptor: PESPrivateDataDescriptor) => void;
+export type TracksUpdatedInfo = {
+    audioTracks: Array<{pid: number, codec: string, lang?: string}>,
+    subtitleTracks: Array<{pid: number, type: string, lang?: string}>,
+};
+type OnTracksUpdatedCallback = (info: TracksUpdatedInfo) => void;
 
 export default abstract class BaseDemuxer {
 
@@ -37,6 +42,7 @@ export default abstract class BaseDemuxer {
     public onSCTE35Metadata: OnSCTE35MetadataCallback;
     public onPESPrivateData: OnPESPrivateDataCallback;
     public onPESPrivateDataDescriptor: OnPESPrivateDataDescriptorCallback;
+    public onTracksUpdated: OnTracksUpdatedCallback;
 
     public constructor() {}
 
@@ -55,6 +61,7 @@ export default abstract class BaseDemuxer {
         this.onSCTE35Metadata = null;
         this.onPESPrivateData = null;
         this.onPESPrivateDataDescriptor = null;
+        this.onTracksUpdated = null;
     }
 
     abstract parseChunks(chunk: ArrayBuffer, byteStart: number): number;

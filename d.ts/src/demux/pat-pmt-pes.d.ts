@@ -63,6 +63,16 @@ export declare class PMT {
     smpte2038_pids: {
         [oid: number]: boolean;
     };
+    all_audio_pids: Array<{
+        pid: number;
+        codec: string;
+        lang?: string;
+    }>;
+    subtitle_pids: Array<{
+        pid: number;
+        type: string;
+        lang?: string;
+    }>;
 }
 export interface ProgramToPMTMap {
     [program: number]: PMT;

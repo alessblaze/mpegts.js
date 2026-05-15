@@ -154,6 +154,13 @@ class TSDemuxer extends BaseDemuxer {
     private audio_init_segment_dispatched_ = false;
     private video_metadata_changed_ = false;
     private audio_metadata_changed_ = false;
+    private video_keyframe_seen_after_init_ = false;
+    private stashed_audio_before_video_init_: Array<{data: Uint8Array, pts: number}> = [];
+    private _last_dispatch_block_reason_: string = '';
+    private video_init_dispatch_time_: number = 0;
+    // The PID currently being decoded as the active audio stream.
+    // 0 means "use whatever common_pids picks" (default first audio).
+    private active_audio_pid_: number = 0;
     private loas_previous_frame: LOASAACFrame | null = null;
 
     private video_track_ = {type: 'video', id: 1, sequenceNumber: 0, samples: [], length: 0};
@@ -248,6 +255,49 @@ class TSDemuxer extends BaseDemuxer {
 
     public resetMediaInfo() {
         this.media_info_ = new MediaInfo();
+    }
+
+    /**
+     * Switch to a different audio PID discovered in the PMT.
+     * Call with a pid from onTracksUpdated audioTracks, or 0 to revert to default.
+     * Resets audio init state so the new stream is initialised cleanly.
+     */
+    public selectAudioPid(pid: number): void {
+        if (!this.pmt_) return;
+        const available = this.pmt_.all_audio_pids.map(a => a.pid);
+        if (pid !== 0 && !available.includes(pid)) {
+            Log.w(this.TAG, `[muvie] selectAudioPid: pid ${pid} not in available audio PIDs [${available.join(', ')}]`);
+            return;
+        }
+        Log.v(this.TAG, `[muvie] selectAudioPid: switching active audio PID to ${pid || '(default)'}`);
+        this.active_audio_pid_ = pid;
+        // Rebuild common_pids.adts_aac to the chosen pid so the routing filter passes it
+        if (pid !== 0 && this.pmt_) {
+            const entry = this.pmt_.all_audio_pids.find(a => a.pid === pid);
+            if (entry) {
+                // Re-point the active common_pid slot to the new pid
+                if (entry.codec === 'aac')      this.pmt_.common_pids.adts_aac = pid;
+                else if (entry.codec === 'ac3') this.pmt_.common_pids.ac3 = pid;
+                else if (entry.codec === 'eac3') this.pmt_.common_pids.eac3 = pid;
+                else if (entry.codec === 'mp3') this.pmt_.common_pids.mp3 = pid;
+            }
+        }
+        // Reset audio init so the new PID's audio spec config is properly dispatched
+        this.audio_init_segment_dispatched_ = false;
+        this.audio_metadata_ = {codec: undefined, audio_object_type: undefined, sampling_freq_index: undefined, sampling_frequency: undefined, channel_config: undefined};
+        (this.audio_track_ as any).samples = [];
+        (this.audio_track_ as any).length = 0;
+        this.audio_last_sample_pts_ = undefined;
+        this.aac_last_incomplete_data_ = null;
+    }
+
+    /** Returns the current PMT track lists (same data as onTracksUpdated). */
+    public getAvailableTracks() {
+        if (!this.pmt_) return {audioTracks: [], subtitleTracks: []};
+        return {
+            audioTracks: this.pmt_.all_audio_pids,
+            subtitleTracks: this.pmt_.subtitle_pids,
+        };
     }
 
     public parseChunks(chunk: ArrayBuffer, byte_start: number): number {
@@ -781,23 +831,38 @@ class TSDemuxer extends BaseDemuxer {
 
             pmt.pid_stream_type[elementary_PID] = stream_type;
 
-            let already_has_video =  pmt.common_pids.h264 || pmt.common_pids.h265;
+            let already_has_video = pmt.common_pids.h264 || pmt.common_pids.h265;
             let already_has_audio = pmt.common_pids.adts_aac || pmt.common_pids.loas_aac || pmt.common_pids.ac3 || pmt.common_pids.eac3 || pmt.common_pids.opus || pmt.common_pids.mp3;
+
+            // Parse ISO 639 language descriptor (tag 0x0A) from ES_info if present.
+            let lang: string | undefined;
+            for (let off = i + 5; off < i + 5 + ES_info_length; ) {
+                const tag = data[off]; const len = data[off + 1];
+                if (tag === 0x0A && len >= 3) {
+                    lang = String.fromCharCode(data[off+2], data[off+3], data[off+4]).trim();
+                }
+                off += 2 + len;
+            }
 
             if (stream_type === StreamType.kH264 && !already_has_video) {
                 pmt.common_pids.h264 = elementary_PID;
             } else if (stream_type === StreamType.kH265 && !already_has_video) {
                 pmt.common_pids.h265 = elementary_PID;
-            } else if (stream_type === StreamType.kADTSAAC && !already_has_audio) {
-                pmt.common_pids.adts_aac = elementary_PID;
-            } else if (stream_type === StreamType.kLOASAAC && !already_has_audio) {
-                pmt.common_pids.loas_aac = elementary_PID;
-            } else if (stream_type === StreamType.kAC3 && !already_has_audio) {
-                pmt.common_pids.ac3 = elementary_PID; // ATSC AC-3
-            } else if (stream_type === StreamType.kEAC3 && !already_has_audio) {
-                pmt.common_pids.eac3 = elementary_PID; // ATSC EAC-3
-            } else if ((stream_type === StreamType.kMPEG1Audio || stream_type === StreamType.kMPEG2Audio) && !already_has_audio) {
-                pmt.common_pids.mp3 = elementary_PID;
+            } else if (stream_type === StreamType.kADTSAAC) {
+                if (!already_has_audio) pmt.common_pids.adts_aac = elementary_PID;
+                pmt.all_audio_pids.push({pid: elementary_PID, codec: 'aac', lang});
+            } else if (stream_type === StreamType.kLOASAAC) {
+                if (!already_has_audio) pmt.common_pids.loas_aac = elementary_PID;
+                pmt.all_audio_pids.push({pid: elementary_PID, codec: 'aac-loas', lang});
+            } else if (stream_type === StreamType.kAC3) {
+                if (!already_has_audio) pmt.common_pids.ac3 = elementary_PID;
+                pmt.all_audio_pids.push({pid: elementary_PID, codec: 'ac3', lang});
+            } else if (stream_type === StreamType.kEAC3) {
+                if (!already_has_audio) pmt.common_pids.eac3 = elementary_PID;
+                pmt.all_audio_pids.push({pid: elementary_PID, codec: 'eac3', lang});
+            } else if (stream_type === StreamType.kMPEG1Audio || stream_type === StreamType.kMPEG2Audio) {
+                if (!already_has_audio) pmt.common_pids.mp3 = elementary_PID;
+                pmt.all_audio_pids.push({pid: elementary_PID, codec: 'mp3', lang});
             } else if (stream_type === StreamType.kPESPrivateData) {
                 pmt.pes_private_data_pids[elementary_PID] = true;
                 if (ES_info_length > 0) {
@@ -915,6 +980,7 @@ class TSDemuxer extends BaseDemuxer {
                     }
                 }
                 pmt.pgs_pids[elementary_PID] = true;
+                pmt.subtitle_pids.push({pid: elementary_PID, type: 'pgs', lang: pmt.pgs_langs[elementary_PID]});
             }
 
             i += 5 + ES_info_length;
@@ -930,6 +996,19 @@ class TSDemuxer extends BaseDemuxer {
             }
             if (pmt.common_pids.adts_aac || pmt.common_pids.loas_aac || pmt.common_pids.ac3 || pmt.common_pids.opus || pmt.common_pids.mp3) {
                 this.has_audio_ = true;
+            }
+            // Also index timed_id3 pids as subtitle tracks
+            for (const pid of Object.keys(pmt.timed_id3_pids).map(Number)) {
+                if (!pmt.subtitle_pids.find(s => s.pid === pid)) {
+                    pmt.subtitle_pids.push({pid, type: 'timed_id3'});
+                }
+            }
+            // Emit available track info to the player layer
+            if (this.onTracksUpdated && (pmt.all_audio_pids.length > 1 || pmt.subtitle_pids.length > 0)) {
+                this.onTracksUpdated({
+                    audioTracks: pmt.all_audio_pids,
+                    subtitleTracks: pmt.subtitle_pids,
+                });
             }
         }
     }
@@ -985,6 +1064,7 @@ class TSDemuxer extends BaseDemuxer {
             this.video_metadata_.details = details;
 
             //if (this.video_init_segment_dispatched_) {
+                if (this.video_init_segment_dispatched_ && details?.keyframe) this.video_keyframe_seen_after_init_ = true;
                 keyframe ||= details.keyframe;
                 units.push({ data: payload });
                 length += payload.byteLength;
@@ -1054,6 +1134,12 @@ class TSDemuxer extends BaseDemuxer {
 
             // Push samples to remuxer only if initialization metadata has been dispatched
             if (this.video_init_segment_dispatched_) {
+                if (keyframe && !this.video_keyframe_seen_after_init_) {
+                    Log.v(this.TAG, `[muvie] H264: first IDR keyframe seen after init dispatch — media segments will now flow`);
+                    this.video_keyframe_seen_after_init_ = true;
+                } else if (keyframe) {
+                    this.video_keyframe_seen_after_init_ = true;
+                }
                 units.push(nalu_avc1);
                 length += nalu_avc1.data.byteLength;
             }
@@ -1136,6 +1222,12 @@ class TSDemuxer extends BaseDemuxer {
 
             // Push samples to remuxer only if initialization metadata has been dispatched
             if (this.video_init_segment_dispatched_) {
+                if (keyframe && !this.video_keyframe_seen_after_init_) {
+                    Log.v(this.TAG, `[muvie] H265: first keyframe seen after init dispatch — media segments will now flow`);
+                    this.video_keyframe_seen_after_init_ = true;
+                } else if (keyframe) {
+                    this.video_keyframe_seen_after_init_ = true;
+                }
                 units.push(nalu_hvc1);
                 length += nalu_hvc1.data.byteLength;
             }
@@ -1252,6 +1344,7 @@ class TSDemuxer extends BaseDemuxer {
         }
         this.onTrackMetadata('video', meta);
         this.video_init_segment_dispatched_ = true;
+        this.video_init_dispatch_time_ = Date.now();
         this.video_metadata_changed_ = false;
 
         // notify new MediaInfo
@@ -1296,7 +1389,56 @@ class TSDemuxer extends BaseDemuxer {
     }
 
     private dispatchAudioVideoMediaSegment() {
-        if (this.isInitSegmentDispatched()) {
+        // Flush any audio that was stashed before video init dispatched.
+        if (this.video_init_segment_dispatched_ && this.stashed_audio_before_video_init_.length > 0) {
+            const count = this.stashed_audio_before_video_init_.length;
+            Log.v(this.TAG, `[muvie] Flushing ${count} stashed audio payload(s) now that video init is dispatched`);
+            const stash = this.stashed_audio_before_video_init_;
+            this.stashed_audio_before_video_init_ = [];
+            for (const item of stash) {
+                this.parseADTSAACPayload(item.data, item.pts);
+            }
+        }
+        const initReady = this.isInitSegmentDispatched();
+        if (!initReady) {
+            const reason = `waiting for init (video=${this.video_init_segment_dispatched_} audio=${this.audio_init_segment_dispatched_})`;
+            if (this._last_dispatch_block_reason_ !== reason) {
+                this._last_dispatch_block_reason_ = reason;
+                Log.v(this.TAG, `[muvie] dispatchAV blocked: ${reason}`);
+            }
+            return;
+        }
+        // If a keyframe hasn't been flagged, scan the current video track samples —
+        // the IDR NALU may have arrived without setting the flag (e.g. cross-chunk PES).
+        if (!this.video_keyframe_seen_after_init_ && this.video_track_.samples.length > 0) {
+            const hasKeyframeSample = (this.video_track_.samples as any[]).some((s: any) => s.isKeyframe);
+            if (hasKeyframeSample) {
+                Log.v(this.TAG, `[muvie] H264: keyframe found in queued samples via retrospective scan — unblocking`);
+                this.video_keyframe_seen_after_init_ = true;
+            }
+        }
+        // Fallback: if both inits are ready but we've waited >6s for a keyframe,
+        // force-dispatch so the decoder can at least try (handles Linux Chrome strict MSE).
+        if (!this.video_keyframe_seen_after_init_ && this.video_init_dispatch_time_ > 0) {
+            const elapsed = Date.now() - this.video_init_dispatch_time_;
+            if (elapsed > 6000 && (this.audio_track_.length || this.video_track_.length)) {
+                Log.w(this.TAG, `[muvie] dispatchAV: no keyframe seen after ${elapsed}ms — force-dispatching (fallback for strict MSE decoders)`);
+                this.video_keyframe_seen_after_init_ = true;
+            }
+        }
+        const keyframeReady = this.video_keyframe_seen_after_init_;
+        if (!keyframeReady) {
+            const reason = 'waiting for first keyframe after init';
+            if (this._last_dispatch_block_reason_ !== reason) {
+                this._last_dispatch_block_reason_ = reason;
+                Log.v(this.TAG, `[muvie] dispatchAV blocked: ${reason}`);
+            }
+        }
+        if (keyframeReady) {
+            if (this._last_dispatch_block_reason_) {
+                Log.v(this.TAG, `[muvie] dispatchAV unblocked — media segments now flowing`);
+                this._last_dispatch_block_reason_ = '';
+            }
             if (this.audio_track_.length || this.video_track_.length) {
                 this.onDataAvailable(this.audio_track_, this.video_track_);
             }
@@ -1305,8 +1447,9 @@ class TSDemuxer extends BaseDemuxer {
 
     private parseADTSAACPayload(data: Uint8Array, pts: number) {
         if (this.has_video_ && !this.video_init_segment_dispatched_) {
-            // If first video IDR frame hasn't been detected,
-            // Wait for first IDR frame and video init segment being dispatched
+            // Video init not dispatched yet — stash instead of dropping so audio
+            // init can be dispatched once video init fires (avoids deadlock).
+            this.stashed_audio_before_video_init_.push({data, pts});
             return;
         }
 

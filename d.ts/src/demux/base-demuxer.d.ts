@@ -4,6 +4,7 @@ import { SMPTE2038Data } from './smpte2038';
 import { SCTE35Data } from './scte35';
 import { KLVData } from './klv';
 import { PGSData } from './pgs-data';
+import { SEIData } from './sei';
 type OnErrorCallback = (type: string, info: string) => void;
 type OnMediaInfoCallback = (mediaInfo: MediaInfo) => void;
 type OnMetaDataArrivedCallback = (metadata: any) => void;
@@ -14,9 +15,23 @@ type onPGSSubitleDataCallback = (pgs_data: PGSData) => void;
 type OnSynchronousKLVMetadataCallback = (synchronous_klv_data: KLVData) => void;
 type OnAsynchronousKLVMetadataCallback = (asynchronous_klv_data: PESPrivateData) => void;
 type OnSMPTE2038MetadataCallback = (smpte2038_data: SMPTE2038Data) => void;
+type OnSEICallback = (sei_data: SEIData) => void;
 type OnSCTE35MetadataCallback = (scte35_data: SCTE35Data) => void;
 type OnPESPrivateDataCallback = (private_data: PESPrivateData) => void;
 type OnPESPrivateDataDescriptorCallback = (private_data_descriptor: PESPrivateDataDescriptor) => void;
+export type TracksUpdatedInfo = {
+    audioTracks: Array<{
+        pid: number;
+        codec: string;
+        lang?: string;
+    }>;
+    subtitleTracks: Array<{
+        pid: number;
+        type: string;
+        lang?: string;
+    }>;
+};
+type OnTracksUpdatedCallback = (info: TracksUpdatedInfo) => void;
 export default abstract class BaseDemuxer {
     onError: OnErrorCallback;
     onMediaInfo: OnMediaInfoCallback;
@@ -28,9 +43,11 @@ export default abstract class BaseDemuxer {
     onSynchronousKLVMetadata: OnSynchronousKLVMetadataCallback;
     onAsynchronousKLVMetadata: OnAsynchronousKLVMetadataCallback;
     onSMPTE2038Metadata: OnSMPTE2038MetadataCallback;
+    onSEI: OnSEICallback;
     onSCTE35Metadata: OnSCTE35MetadataCallback;
     onPESPrivateData: OnPESPrivateDataCallback;
     onPESPrivateDataDescriptor: OnPESPrivateDataDescriptorCallback;
+    onTracksUpdated: OnTracksUpdatedCallback;
     constructor();
     destroy(): void;
     abstract parseChunks(chunk: ArrayBuffer, byteStart: number): number;
