@@ -34,6 +34,8 @@ declare class TSDemuxer extends BaseDemuxer {
     private video_init_dispatch_time_;
     private audio_wrap_log_count_;
     private audio_stale_drop_log_count_;
+    private audio_startup_align_log_count_;
+    private audio_startup_drop_log_count_;
     private active_audio_pid_;
     private loas_previous_frame;
     private video_track_;
@@ -102,6 +104,8 @@ declare class TSDemuxer extends BaseDemuxer {
     private dispatchVideoMediaSegment;
     private dispatchAudioMediaSegment;
     private normalizeIncomingAudioPtsMilliseconds;
+    private getStartupAudioAnchorMilliseconds;
+    private normalizeStartupAudioPtsMilliseconds;
     private stashAudioBeforeVideoInit;
     private dispatchAudioVideoMediaSegment;
     private parseADTSAACPayload;

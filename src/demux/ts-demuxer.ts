@@ -99,7 +99,7 @@ type AudioData = {
 type StashedAudioPayload = {
     codec: 'aac' | 'aac-loas' | 'ac-3' | 'ec-3' | 'opus' | 'mp3';
     data: Uint8Array;
-    pts: number;
+    pts: number | undefined;
 };
 
 class TSDemuxer extends BaseDemuxer {
@@ -166,6 +166,8 @@ class TSDemuxer extends BaseDemuxer {
     private video_init_dispatch_time_: number = 0;
     private audio_wrap_log_count_: number = 0;
     private audio_stale_drop_log_count_: number = 0;
+    private audio_startup_align_log_count_: number = 0;
+    private audio_startup_drop_log_count_: number = 0;
     // The PID currently being decoded as the active audio stream.
     // 0 means "use whatever common_pids picks" (default first audio).
     private active_audio_pid_: number = 0;
@@ -1488,6 +1490,33 @@ class TSDemuxer extends BaseDemuxer {
         return base_pts_ms;
     }
 
+    private getStartupAudioAnchorMilliseconds(): number | undefined {
+        if (this.video_track_.samples.length > 0) {
+            return this.video_track_.samples[0].dts;
+        }
+        return undefined;
+    }
+
+    private normalizeStartupAudioPtsMilliseconds(base_pts_ms: number | undefined): number | undefined {
+        if (base_pts_ms == undefined || this.audio_last_sample_pts_ != undefined) {
+            return base_pts_ms;
+        }
+        const anchor = this.getStartupAudioAnchorMilliseconds();
+        if (anchor == undefined) {
+            return base_pts_ms;
+        }
+        const maxStartupDriftMs = 5000;
+        const drift = base_pts_ms - anchor;
+        if (Math.abs(drift) > maxStartupDriftMs) {
+            this.audio_startup_align_log_count_++;
+            if (this.audio_startup_align_log_count_ <= 3 || this.audio_startup_align_log_count_ % 25 === 0) {
+                Log.w(this.TAG, `[muvie] Startup audio anchor normalize (#${this.audio_startup_align_log_count_}): ${base_pts_ms}ms -> ${anchor}ms (video=${anchor}ms drift=${Math.round(drift)}ms)`);
+            }
+            return anchor;
+        }
+        return base_pts_ms;
+    }
+
     private stashAudioBeforeVideoInit(codec: StashedAudioPayload['codec'], data: Uint8Array, pts: number) {
         this.stashed_audio_before_video_init_.push({codec, data, pts});
     }
@@ -1495,9 +1524,22 @@ class TSDemuxer extends BaseDemuxer {
     private dispatchAudioVideoMediaSegment() {
         // Flush any audio that was stashed before video init dispatched.
         if (this.video_init_segment_dispatched_ && this.stashed_audio_before_video_init_.length > 0) {
-            const count = this.stashed_audio_before_video_init_.length;
+            const anchor = this.getStartupAudioAnchorMilliseconds();
+            let stash = this.stashed_audio_before_video_init_;
+            if (anchor != undefined) {
+                const maxStartupLeadMs = 1500;
+                const before = stash.length;
+                stash = stash.filter((item) => item.pts == undefined || (item.pts / this.timescale_) >= (anchor - maxStartupLeadMs));
+                const dropped = before - stash.length;
+                if (dropped > 0) {
+                    this.audio_startup_drop_log_count_++;
+                    if (this.audio_startup_drop_log_count_ <= 3 || this.audio_startup_drop_log_count_ % 25 === 0) {
+                        Log.w(this.TAG, `[muvie] Dropped ${dropped} stale startup audio payload(s) before video anchor ${anchor}ms (#${this.audio_startup_drop_log_count_})`);
+                    }
+                }
+            }
+            const count = stash.length;
             Log.v(this.TAG, `[muvie] Flushing ${count} stashed audio payload(s) now that video init is dispatched`);
-            const stash = this.stashed_audio_before_video_init_;
             this.stashed_audio_before_video_init_ = [];
             for (const item of stash) {
                 switch (item.codec) {
@@ -1588,6 +1630,7 @@ class TSDemuxer extends BaseDemuxer {
 
         if (pts != undefined) {
             base_pts_ms = pts / this.timescale_;
+            base_pts_ms = this.normalizeStartupAudioPtsMilliseconds(base_pts_ms);
             base_pts_ms = this.normalizeIncomingAudioPtsMilliseconds(base_pts_ms);
             if (base_pts_ms == undefined) {
                 return;
@@ -1686,6 +1729,7 @@ class TSDemuxer extends BaseDemuxer {
 
         if (pts != undefined) {
             base_pts_ms = pts / this.timescale_;
+            base_pts_ms = this.normalizeStartupAudioPtsMilliseconds(base_pts_ms);
             base_pts_ms = this.normalizeIncomingAudioPtsMilliseconds(base_pts_ms);
             if (base_pts_ms == undefined) {
                 return;
@@ -1776,6 +1820,7 @@ class TSDemuxer extends BaseDemuxer {
 
         if (pts != undefined) {
             base_pts_ms = pts / this.timescale_;
+            base_pts_ms = this.normalizeStartupAudioPtsMilliseconds(base_pts_ms);
             base_pts_ms = this.normalizeIncomingAudioPtsMilliseconds(base_pts_ms);
             if (base_pts_ms == undefined) {
                 return;
@@ -1853,6 +1898,7 @@ class TSDemuxer extends BaseDemuxer {
 
         if (pts != undefined) {
             base_pts_ms = pts / this.timescale_;
+            base_pts_ms = this.normalizeStartupAudioPtsMilliseconds(base_pts_ms);
             base_pts_ms = this.normalizeIncomingAudioPtsMilliseconds(base_pts_ms);
             if (base_pts_ms == undefined) {
                 return;
@@ -1930,6 +1976,7 @@ class TSDemuxer extends BaseDemuxer {
 
         if (pts != undefined) {
             base_pts_ms = pts / this.timescale_;
+            base_pts_ms = this.normalizeStartupAudioPtsMilliseconds(base_pts_ms);
             base_pts_ms = this.normalizeIncomingAudioPtsMilliseconds(base_pts_ms);
             if (base_pts_ms == undefined) {
                 return;
@@ -2057,6 +2104,7 @@ class TSDemuxer extends BaseDemuxer {
         let pts_ms: number | undefined;
         if (pts != undefined) {
             pts_ms = pts / this.timescale_;
+            pts_ms = this.normalizeStartupAudioPtsMilliseconds(pts_ms);
             pts_ms = this.normalizeIncomingAudioPtsMilliseconds(pts_ms);
             if (pts_ms == undefined) {
                 return;

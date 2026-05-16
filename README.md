@@ -18,13 +18,19 @@ mpegts.js works by transmuxing MPEG2-TS stream into ISO BMFF (Fragmented MP4) se
 
     **Audio PTS wrap-around detection and correction:**
     - Detects 33-bit PTS counter wrap-around in live MPEG-TS audio streams
-    - Automatically normalized forward-wrapped timestamps to maintain monotonic time
+    - Automatically normalizes forward-wrapped timestamps to maintain monotonic time
     - Drops stale pre-wrap timestamps that arrive after the wrap point
 
     **Audio timestamp discontinuity resilience (mp4-remuxer):**
     - Detects massive audio timestamp discontinuities (>30s or >180 frame durations) caused by audio PID switching
     - Resets the audio timeline reference instead of dropping all frames (backward) or generating thousands of silent frames (forward)
     - Prevents audio dropout and long silence gaps when switching audio tracks on live streams
+
+    **Startup audio timestamp anchoring:**
+    - Snaps the first audio sample's PTS to the video anchor DTS when drift exceeds 5 seconds
+    - Filters out stashed audio payloads with timestamps more than 1.5s behind the video anchor before replay
+    - Prevents remuxer-level discontinuity events on audio PID switches during stream startup
+    - Applied to all six audio codecs (AAC, LOAS-AAC, AC-3, E-AC-3, Opus, MP3)
 
 - **v1.8.1** (alessmicrosystems fork)
 
