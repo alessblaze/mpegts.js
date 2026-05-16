@@ -164,6 +164,8 @@ class TSDemuxer extends BaseDemuxer {
     private stashed_audio_before_video_init_: Array<StashedAudioPayload> = [];
     private _last_dispatch_block_reason_: string = '';
     private video_init_dispatch_time_: number = 0;
+    private audio_wrap_log_count_: number = 0;
+    private audio_stale_drop_log_count_: number = 0;
     // The PID currently being decoded as the active audio stream.
     // 0 means "use whatever common_pids picks" (default first audio).
     private active_audio_pid_: number = 0;
@@ -1458,6 +1460,34 @@ class TSDemuxer extends BaseDemuxer {
         }
     }
 
+    private normalizeIncomingAudioPtsMilliseconds(base_pts_ms: number | undefined): number | undefined {
+        if (base_pts_ms == undefined || this.audio_last_sample_pts_ == undefined) {
+            return base_pts_ms;
+        }
+
+        const halfWrapMs = 0x100000000 / this.timescale_;
+        const fullWrapMs = 0x200000000 / this.timescale_;
+
+        if (base_pts_ms + halfWrapMs < this.audio_last_sample_pts_) {
+            const normalized = base_pts_ms + fullWrapMs;
+            this.audio_wrap_log_count_++;
+            if (this.audio_wrap_log_count_ <= 3 || this.audio_wrap_log_count_ % 25 === 0) {
+                Log.w(this.TAG, `[muvie] Audio timestamp wrap normalized (#${this.audio_wrap_log_count_}): ${base_pts_ms}ms -> ${normalized}ms (last=${this.audio_last_sample_pts_}ms)`);
+            }
+            return normalized;
+        }
+
+        if (base_pts_ms > this.audio_last_sample_pts_ + halfWrapMs) {
+            this.audio_stale_drop_log_count_++;
+            if (this.audio_stale_drop_log_count_ <= 3 || this.audio_stale_drop_log_count_ % 25 === 0) {
+                Log.w(this.TAG, `[muvie] Dropping stale pre-wrap audio timestamp (#${this.audio_stale_drop_log_count_}) ${base_pts_ms}ms (last=${this.audio_last_sample_pts_}ms)`);
+            }
+            return undefined;
+        }
+
+        return base_pts_ms;
+    }
+
     private stashAudioBeforeVideoInit(codec: StashedAudioPayload['codec'], data: Uint8Array, pts: number) {
         this.stashed_audio_before_video_init_.push({codec, data, pts});
     }
@@ -1558,6 +1588,10 @@ class TSDemuxer extends BaseDemuxer {
 
         if (pts != undefined) {
             base_pts_ms = pts / this.timescale_;
+            base_pts_ms = this.normalizeIncomingAudioPtsMilliseconds(base_pts_ms);
+            if (base_pts_ms == undefined) {
+                return;
+            }
         }
         if (this.audio_metadata_.codec === 'aac') {
             if (pts == undefined && this.audio_last_sample_pts_ != undefined) {
@@ -1652,6 +1686,10 @@ class TSDemuxer extends BaseDemuxer {
 
         if (pts != undefined) {
             base_pts_ms = pts / this.timescale_;
+            base_pts_ms = this.normalizeIncomingAudioPtsMilliseconds(base_pts_ms);
+            if (base_pts_ms == undefined) {
+                return;
+            }
         }
         if (this.audio_metadata_.codec === 'aac') {
             if (pts == undefined && this.audio_last_sample_pts_ != undefined) {
@@ -1738,6 +1776,10 @@ class TSDemuxer extends BaseDemuxer {
 
         if (pts != undefined) {
             base_pts_ms = pts / this.timescale_;
+            base_pts_ms = this.normalizeIncomingAudioPtsMilliseconds(base_pts_ms);
+            if (base_pts_ms == undefined) {
+                return;
+            }
         }
 
         if (this.audio_metadata_.codec === 'ac-3') {
@@ -1811,6 +1853,10 @@ class TSDemuxer extends BaseDemuxer {
 
         if (pts != undefined) {
             base_pts_ms = pts / this.timescale_;
+            base_pts_ms = this.normalizeIncomingAudioPtsMilliseconds(base_pts_ms);
+            if (base_pts_ms == undefined) {
+                return;
+            }
         }
 
         if (this.audio_metadata_.codec === 'ec-3') {
@@ -1884,6 +1930,10 @@ class TSDemuxer extends BaseDemuxer {
 
         if (pts != undefined) {
             base_pts_ms = pts / this.timescale_;
+            base_pts_ms = this.normalizeIncomingAudioPtsMilliseconds(base_pts_ms);
+            if (base_pts_ms == undefined) {
+                return;
+            }
         }
         if (this.audio_metadata_.codec === 'opus') {
             if (pts == undefined && this.audio_last_sample_pts_ != undefined) {
@@ -1961,7 +2011,6 @@ class TSDemuxer extends BaseDemuxer {
         let bit_rate = 0;
         let object_type = 34;  // Layer-3, listed in MPEG-4 Audio Object Types
 
-        let codec = 'mp3';
         switch (ver) {
             case 0:  // MPEG 2.5
                 sample_rate = _mpegAudioV25SampleRateTable[sampling_freq_index];
@@ -2005,6 +2054,15 @@ class TSDemuxer extends BaseDemuxer {
             data: sample
         } as const;
 
+        let pts_ms: number | undefined;
+        if (pts != undefined) {
+            pts_ms = pts / this.timescale_;
+            pts_ms = this.normalizeIncomingAudioPtsMilliseconds(pts_ms);
+            if (pts_ms == undefined) {
+                return;
+            }
+        }
+
 
         if (this.audio_init_segment_dispatched_ == false) {
             this.audio_metadata_ = {
@@ -2024,8 +2082,8 @@ class TSDemuxer extends BaseDemuxer {
         let mp3_sample = {
             unit: data,
             length: data.byteLength,
-            pts: pts / this.timescale_,
-            dts: pts / this.timescale_
+            pts: pts_ms,
+            dts: pts_ms
         };
         this.audio_track_.samples.push(mp3_sample);
         this.audio_track_.length += data.byteLength;

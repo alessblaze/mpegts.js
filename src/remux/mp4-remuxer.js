@@ -65,6 +65,8 @@ class MP4Remuxer {
         this._mp3UseMpegAudio = !Browser.firefox;
 
         this._fillAudioTimestampGap = this._config.fixAudioTimestampGap;
+        this._audioDiscontinuityResetLogCount = 0;
+        this._audioGapFillLogCount = 0;
     }
 
     destroy() {
@@ -84,6 +86,11 @@ class MP4Remuxer {
         producer.onDataAvailable = this.remux.bind(this);
         producer.onTrackMetadata = this._onTrackMetadataReceived.bind(this);
         return this;
+    }
+
+    _shouldLogLimited(counterName) {
+        this[counterName] = (this[counterName] || 0) + 1;
+        return this[counterName] <= 3 || this[counterName] % 25 === 0;
     }
 
     /* prototype: function onInitSegment(type: string, initSegment: ArrayBuffer): void
@@ -251,6 +258,10 @@ class MP4Remuxer {
         let dtsCorrection = undefined;
         let firstDts = -1, lastDts = -1, lastPts = -1;
         let refSampleDuration = this._audioMeta.refSampleDuration;
+        const hardDiscontinuityThreshold = Math.max(
+            30000,
+            refSampleDuration != null ? refSampleDuration * 180 : 30000
+        );
 
         let mpegRawTrack = this._audioMeta.codec === 'mp3' && this._mp3UseMpegAudio;
         let firstSegmentAfterSeek = this._dtsBaseInited && this._audioNextDts === undefined;
@@ -376,19 +387,35 @@ class MP4Remuxer {
 
                 dtsCorrection = originalDts - curRefDts;
                 if (dtsCorrection <= -maxAudioFramesDrift * refSampleDuration) {
+                    if (Math.abs(dtsCorrection) > hardDiscontinuityThreshold) {
+                        if (this._shouldLogLimited('_audioDiscontinuityResetLogCount')) {
+                            Log.w(this.TAG, `Audio discontinuity reset (#${this._audioDiscontinuityResetLogCount}): backward ${Math.round(dtsCorrection)} ms, codec=${this._audioMeta.codec}`);
+                        }
+                        dts = Math.floor(originalDts);
+                        sampleDuration = Math.floor(refSampleDuration);
+                        this._audioNextDts = dts + sampleDuration;
+                    } else {
                     // If we're overlapping by more than maxAudioFramesDrift number of frame, drop this sample
-                    Log.w(this.TAG, `Dropping 1 audio frame (originalDts: ${originalDts} ms ,curRefDts: ${curRefDts} ms)  due to dtsCorrection: ${dtsCorrection} ms overlap.`);
-                    continue;
+                        Log.w(this.TAG, `Dropping 1 audio frame (originalDts: ${originalDts} ms ,curRefDts: ${curRefDts} ms)  due to dtsCorrection: ${dtsCorrection} ms overlap.`);
+                        continue;
+                    }
                 }
                 else if (dtsCorrection >= maxAudioFramesDrift * refSampleDuration && this._fillAudioTimestampGap && !Browser.safari) {
                     // Silent frame generation, if large timestamp gap detected && config.fixAudioTimestampGap
+                    let frameCount = Math.floor(dtsCorrection / refSampleDuration);
+                    if (frameCount > 180 || dtsCorrection > hardDiscontinuityThreshold) {
+                        if (this._shouldLogLimited('_audioDiscontinuityResetLogCount')) {
+                            Log.w(this.TAG, `Audio discontinuity reset (#${this._audioDiscontinuityResetLogCount}): forward ${Math.round(dtsCorrection)} ms, frames=${frameCount}, codec=${this._audioMeta.codec}`);
+                        }
+                        dts = Math.floor(originalDts);
+                        sampleDuration = Math.floor(refSampleDuration);
+                        this._audioNextDts = dts + sampleDuration;
+                    } else {
                     needFillSilentFrames = true;
                     // We need to insert silent frames to fill timestamp gap
-                    let frameCount = Math.floor(dtsCorrection / refSampleDuration);
-                    Log.w(this.TAG, 'Large audio timestamp gap detected, may cause AV sync to drift. ' +
-                        'Silent frames will be generated to avoid unsync.\n' +
-                        `originalDts: ${originalDts} ms, curRefDts: ${curRefDts} ms, ` +
-                        `dtsCorrection: ${Math.round(dtsCorrection)} ms, generate: ${frameCount} frames`);
+                    if (this._shouldLogLimited('_audioGapFillLogCount')) {
+                        Log.w(this.TAG, `Audio gap fill (#${this._audioGapFillLogCount}): correction=${Math.round(dtsCorrection)} ms, frames=${frameCount}, codec=${this._audioMeta.codec}`);
+                    }
 
 
                     dts = Math.floor(curRefDts);
@@ -428,6 +455,7 @@ class MP4Remuxer {
                     }
 
                     this._audioNextDts = curRefDts + refSampleDuration;
+                    }
 
                 } else {
 
@@ -478,7 +506,9 @@ class MP4Remuxer {
 
             if (needFillSilentFrames) {
                 // Silent frames should be inserted after wrong-duration frame
-                mp4Samples.push.apply(mp4Samples, silentFrames);
+                for (let j = 0; j < silentFrames.length; j++) {
+                    mp4Samples.push(silentFrames[j]);
+                }
             }
         }
 

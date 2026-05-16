@@ -14,6 +14,48 @@ mpegts.js works by transmuxing MPEG2-TS stream into ISO BMFF (Fragmented MP4) se
 [Media Source Extensions]: https://w3c.github.io/media-source/
 
 ## News
+- **v1.8.2** (alessmicrosystems fork)
+
+    **Audio PTS wrap-around detection and correction:**
+    - Detects 33-bit PTS counter wrap-around in live MPEG-TS audio streams
+    - Automatically normalized forward-wrapped timestamps to maintain monotonic time
+    - Drops stale pre-wrap timestamps that arrive after the wrap point
+
+    **Audio timestamp discontinuity resilience (mp4-remuxer):**
+    - Detects massive audio timestamp discontinuities (>30s or >180 frame durations) caused by audio PID switching
+    - Resets the audio timeline reference instead of dropping all frames (backward) or generating thousands of silent frames (forward)
+    - Prevents audio dropout and long silence gaps when switching audio tracks on live streams
+
+- **v1.8.1** (alessmicrosystems fork)
+
+    **Audio track selection for MPEG-TS live streams:**
+    - `TRACKS_UPDATED` player event reports all available audio tracks (PID, codec, language) and subtitle tracks from PMT parsing
+    - `switchAudioPid(pid)` API for in-place audio PID switching
+    - `preferredAudioPid` config option for pre-selecting an audio track before `load()`
+    - ISO 639 language descriptor extraction for all audio PIDs
+
+    **AC-3 / E-AC-3 auto-fallback:**
+    - Detects browser-incompatible AC-3/E-AC-3 primary audio
+    - Auto-switches to the first compatible AAC or MP3 alternative without user intervention
+    - Respects `preferredAudioPid` config when set
+
+    **Keyframe-gated media dispatch:**
+    - Media segments are held until the first H.264/H.265 IDR keyframe is seen after init segment dispatch
+    - Audio data before the first keyframe is stashed with its codec tag and replayed through the correct parser
+    - 6-second fallback timeout prevents indefinite stalling on streams with missing keyframes
+
+    **SEI support:**
+    - `SEI_ARRIVED` event for H.264/H.265 Supplemental Enhancement Information NAL units
+    - `SEIData` type with `type`, `size`, `uuid`, `user_data`, and optional `pts` fields
+
+    **Bug fixes:**
+    - Fixed stashed audio replay always using AAC parser regardless of actual codec (affected MP3 fallback streams)
+    - Fixed `selectAudioPid(0)` not restoring default audio route — now clears all stale codec PID mappings
+    - Fixed `audio_metadata_changed_` flag being set to `false` on video init instead of audio init (copy-paste bug)
+    - Fixed `parseMP3Payload` missing `audio_last_sample_pts_` tracking
+    - Fixed MP3 init segment missing `refSampleDuration`
+    - Fixed PMT multi-section parsing — `parsed_sections` map prevents duplicate audio entries
+
 - **v1.8.0**
 
     Support working on **iOS Safari** with iOS 17.1+ through Apple's [ManagedMediaSource API](https://github.com/w3c/media-source/issues/320)
@@ -59,6 +101,8 @@ mpegts.js works by transmuxing MPEG2-TS stream into ISO BMFF (Fragmented MP4) se
 - Low CPU overhead and low memory usage (JS heap takes about 10MiB for each instance)
 - Support extracting PES private data (stream_type=0x06) like ARIB B24 subtitles (with [aribb24.js][])
 - Support Timed ID3 Metadata (stream_type=0x15) callback (TIMED_ID3_METADATA_ARRIVED)
+- Multi-audio track support with PID switching for MPEG-TS live streams
+- Automatic AC-3 / E-AC-3 fallback to AAC or MP3 for browser compatibility
 
 [aribb24.js]: https://github.com/monyone/aribb24.js
 
