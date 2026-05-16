@@ -14,6 +14,32 @@ mpegts.js works by transmuxing MPEG2-TS stream into ISO BMFF (Fragmented MP4) se
 [Media Source Extensions]: https://w3c.github.io/media-source/
 
 ## News
+- **v1.8.3** (alessmicrosystems fork)
+
+    **Audio startup failure recovery:**
+    - When audio init never becomes ready (dead audio PID, corrupt stream), the demuxer now abandons audio and proceeds video-only
+    - `isInitSegmentDispatched()` allows video-only dispatch when `audio_startup_failed_` is flagged
+    - Prevents indefinite stall waiting for audio that will never arrive
+    - 6-second timeout before audio is declared failed
+
+    **Startup stash capped at 12 payloads:**
+    - Audio stash limited to 12 most recent payloads during video init wait
+    - Prevents unbounded memory growth on slow-IDR streams
+    - Stash filter threshold tightened from 1500ms to 500ms for cleaner first-sample alignment
+
+    **StartupStallJumper improved for slow canplay:**
+    - Allows seek after 3 progress checks + 750ms buffer even if `canplay` hasn't fired yet
+    - Recovers streams where browser never emits `canplay` but buffered data is available
+    - Counter reset on `canplay` receipt keeps normal path unaffected
+
+    **`selectAudioPid` idempotent guard:**
+    - No-ops when the requested PID is already active — avoids unnecessary audio init reset
+    - Prevents brief audio dropout on redundant PID selection calls
+
+    **Diagnostic logging:**
+    - First 3 media dispatches log video/audio sample counts, DTS values, and keyframe status
+    - Startup stash trim events logged with rate-limited counters
+
 - **v1.8.2** (alessmicrosystems fork)
 
     **Audio PTS wrap-around detection and correction:**
