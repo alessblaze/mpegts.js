@@ -3,6 +3,7 @@ declare class StartupStallJumper {
     private _media_element;
     private _on_direct_seek;
     private _canplay_received;
+    private _progress_checks_before_canplay;
     private e;
     constructor(media_element: HTMLMediaElement, on_direct_seek: (target: number) => void);
     destroy(): void;

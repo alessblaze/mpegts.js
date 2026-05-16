@@ -169,6 +169,8 @@ class TSDemuxer extends BaseDemuxer {
     private audio_stale_drop_log_count_: number = 0;
     private audio_startup_align_log_count_: number = 0;
     private audio_startup_drop_log_count_: number = 0;
+    private audio_startup_stash_trim_log_count_: number = 0;
+    private startup_dispatch_log_count_: number = 0;
     // The PID currently being decoded as the active audio stream.
     // 0 means "use whatever common_pids picks" (default first audio).
     private active_audio_pid_: number = 0;
@@ -1058,10 +1060,6 @@ class TSDemuxer extends BaseDemuxer {
             if (pmt.common_pids.adts_aac || pmt.common_pids.loas_aac || pmt.common_pids.ac3 || pmt.common_pids.eac3 || pmt.common_pids.opus || pmt.common_pids.mp3) {
                 this.has_audio_ = true;
             }
-            if (this.audio_startup_failed_) {
-                this.clearActiveAudioPids(pmt);
-                this.has_audio_ = false;
-            }
             // Also index timed_id3 pids as subtitle tracks
             for (const pid of Object.keys(pmt.timed_id3_pids).map(Number)) {
                 if (!pmt.subtitle_pids.find(s => s.pid === pid)) {
@@ -1372,6 +1370,9 @@ class TSDemuxer extends BaseDemuxer {
 
     private isInitSegmentDispatched(): boolean {
         if (this.has_video_ && this.has_audio_) {  // both video & audio
+            if (this.audio_startup_failed_ && !this.audio_init_segment_dispatched_) {
+                return this.video_init_segment_dispatched_;
+            }
             return this.video_init_segment_dispatched_ && this.audio_init_segment_dispatched_;
         }
         if (this.has_video_ && !this.has_audio_) {  // video only
@@ -1538,6 +1539,15 @@ class TSDemuxer extends BaseDemuxer {
 
     private stashAudioBeforeVideoInit(codec: StashedAudioPayload['codec'], data: Uint8Array, pts: number) {
         this.stashed_audio_before_video_init_.push({codec, data, pts});
+        const maxStartupAudioPayloads = 12;
+        if (this.stashed_audio_before_video_init_.length > maxStartupAudioPayloads) {
+            const dropped = this.stashed_audio_before_video_init_.length - maxStartupAudioPayloads;
+            this.stashed_audio_before_video_init_.splice(0, dropped);
+            this.audio_startup_stash_trim_log_count_++;
+            if (this.audio_startup_stash_trim_log_count_ <= 3 || this.audio_startup_stash_trim_log_count_ % 25 === 0) {
+                Log.w(this.TAG, `[muvie] Trimmed ${dropped} old startup audio payload(s), keeping latest ${maxStartupAudioPayloads} (#${this.audio_startup_stash_trim_log_count_})`);
+            }
+        }
     }
 
     private clearActiveAudioPids(pmt: PMT | undefined): void {
@@ -1557,8 +1567,6 @@ class TSDemuxer extends BaseDemuxer {
             return;
         }
         this.audio_startup_failed_ = true;
-        this.has_audio_ = false;
-        this.clearActiveAudioPids(this.pmt_);
         this.stashed_audio_before_video_init_ = [];
         this.aac_last_incomplete_data_ = null;
         this.loas_previous_frame = null;
@@ -1573,7 +1581,7 @@ class TSDemuxer extends BaseDemuxer {
             const anchor = this.getStartupAudioAnchorMilliseconds();
             let stash = this.stashed_audio_before_video_init_;
             if (anchor != undefined) {
-                const maxStartupLeadMs = 1500;
+                const maxStartupLeadMs = 500;
                 const before = stash.length;
                 stash = stash.filter((item) => item.pts == undefined || (item.pts / this.timescale_) >= (anchor - maxStartupLeadMs));
                 const dropped = before - stash.length;
@@ -1663,6 +1671,15 @@ class TSDemuxer extends BaseDemuxer {
                 this._last_dispatch_block_reason_ = '';
             }
             if (this.audio_track_.length || this.video_track_.length) {
+                this.startup_dispatch_log_count_++;
+                if (this.startup_dispatch_log_count_ <= 3) {
+                    const firstVideo = this.video_track_.samples.length > 0 ? this.video_track_.samples[0] : undefined;
+                    const firstAudio = this.audio_track_.samples.length > 0 ? this.audio_track_.samples[0] : undefined;
+                    Log.v(
+                        this.TAG,
+                        `[muvie] dispatchAV startup (#${this.startup_dispatch_log_count_}): videoSamples=${this.video_track_.samples.length} audioSamples=${this.audio_track_.samples.length} firstVideoDts=${firstVideo?.dts} firstAudioDts=${firstAudio?.dts} firstVideoKeyframe=${firstVideo?.isKeyframe === true}`
+                    );
+                }
                 this.onDataAvailable(this.audio_track_, this.video_track_);
             }
         }

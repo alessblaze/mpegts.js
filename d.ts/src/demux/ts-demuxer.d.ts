@@ -37,6 +37,8 @@ declare class TSDemuxer extends BaseDemuxer {
     private audio_stale_drop_log_count_;
     private audio_startup_align_log_count_;
     private audio_startup_drop_log_count_;
+    private audio_startup_stash_trim_log_count_;
+    private startup_dispatch_log_count_;
     private active_audio_pid_;
     private loas_previous_frame;
     private video_track_;

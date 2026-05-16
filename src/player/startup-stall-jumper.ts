@@ -25,6 +25,7 @@ class StartupStallJumper {
     private _media_element: HTMLMediaElement = null;
     private _on_direct_seek: (target: number) => void = null;
     private _canplay_received: boolean = false;
+    private _progress_checks_before_canplay: number = 0;
 
     private e: any = null;
 
@@ -53,6 +54,7 @@ class StartupStallJumper {
 
     private _onMediaCanPlay(e: Event): void {
         this._canplay_received = true;
+        this._progress_checks_before_canplay = 0;
         // Remove canplay listener since it will be fired multiple times
         this._media_element.removeEventListener('canplay', this.e.onMediaCanPlay);
     }
@@ -70,7 +72,20 @@ class StartupStallJumper {
         const buffered = media.buffered;
 
         if (is_stalled || !this._canplay_received || media.readyState < 2) {  // HAVE_CURRENT_DATA
-            if (this._canplay_received && buffered.length > 0 && media.currentTime < buffered.start(0)) {
+            const should_try_pre_canplay_seek =
+                !this._canplay_received
+                && !is_stalled
+                && buffered.length > 0
+                && media.currentTime < buffered.start(0)
+                && (buffered.end(0) - buffered.start(0)) >= 0.75
+                && ++this._progress_checks_before_canplay >= 3;
+            if (should_try_pre_canplay_seek) {
+                Log.w(
+                    this.TAG,
+                    `Pre-canplay startup recovery armed: currentTime=${media.currentTime}, bufferedStart=${buffered.start(0)}, bufferedEnd=${buffered.end(0)}, readyState=${media.readyState}, progressChecks=${this._progress_checks_before_canplay}`
+                );
+            }
+            if ((this._canplay_received || is_stalled || should_try_pre_canplay_seek) && buffered.length > 0 && media.currentTime < buffered.start(0)) {
                 Log.w(this.TAG, `Playback seems stuck at ${media.currentTime}, seek to ${buffered.start(0)}`);
                 this._on_direct_seek(buffered.start(0));
                 this._media_element.removeEventListener('progress', this.e.onMediaProgress);
