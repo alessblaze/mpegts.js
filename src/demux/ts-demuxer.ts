@@ -279,9 +279,26 @@ class TSDemuxer extends BaseDemuxer {
             Log.w(this.TAG, `[muvie] selectAudioPid: pid ${pid} not in available audio PIDs [${available.join(', ')}]`);
             return;
         }
+        const pmt = this.pmt_;
+        let entry = pid !== 0 ? pmt.all_audio_pids.find(a => a.pid === pid) : undefined;
+        if (!entry) {
+            entry = pmt.all_audio_pids[0];
+        }
+        const currentPid =
+            pmt.common_pids.adts_aac
+            || pmt.common_pids.loas_aac
+            || pmt.common_pids.ac3
+            || pmt.common_pids.eac3
+            || pmt.common_pids.opus
+            || pmt.common_pids.mp3
+            || 0;
+        const targetPid = entry?.pid || 0;
+        if (currentPid === targetPid && this.active_audio_pid_ === pid) {
+            Log.v(this.TAG, `[muvie] selectAudioPid: pid ${pid || '(default)'} already active, keeping current audio state`);
+            return;
+        }
         Log.v(this.TAG, `[muvie] selectAudioPid: switching active audio PID to ${pid || '(default)'}`);
         this.active_audio_pid_ = pid;
-        const pmt = this.pmt_;
         pmt.common_pids.adts_aac = undefined;
         pmt.common_pids.loas_aac = undefined;
         pmt.common_pids.ac3 = undefined;
@@ -289,10 +306,6 @@ class TSDemuxer extends BaseDemuxer {
         pmt.common_pids.opus = undefined;
         pmt.common_pids.mp3 = undefined;
 
-        let entry = pid !== 0 ? pmt.all_audio_pids.find(a => a.pid === pid) : undefined;
-        if (!entry) {
-            entry = pmt.all_audio_pids[0];
-        }
         if (entry) {
             if (entry.codec === 'aac') pmt.common_pids.adts_aac = entry.pid;
             else if (entry.codec === 'aac-loas') pmt.common_pids.loas_aac = entry.pid;

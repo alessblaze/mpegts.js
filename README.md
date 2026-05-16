@@ -32,6 +32,21 @@ mpegts.js works by transmuxing MPEG2-TS stream into ISO BMFF (Fragmented MP4) se
     - Prevents remuxer-level discontinuity events on audio PID switches during stream startup
     - Applied to all six audio codecs (AAC, LOAS-AAC, AC-3, E-AC-3, Opus, MP3)
 
+    **`selectAudioPid` hardened against stale codec state:**
+    - Clears all legacy codec PID mappings and rebuilds only the requested track
+    - `selectAudioPid(0)` correctly restores the default audio route
+    - Resets audio init state on PID switch so the new codec config is cleanly dispatched
+
+    **Stashed audio codec-aware replay:**
+    - Audio payloads stashed before video init are tagged with their codec
+    - Replayed through the correct parser instead of always using AAC
+    - Fixes silent/garbled audio on tracks switched during stream startup
+
+    **`preferredAudioPid` extended to all stream types:**
+    - Previously only applied during AC-3/E-AC-3 auto-fallback
+    - Now also selects the preferred track on AAC, MP3, and other codec streams
+    - Respects the config option on first PMT parse regardless of primary codec
+
 - **v1.8.1** (alessmicrosystems fork)
 
     **Audio track selection for MPEG-TS live streams:**
