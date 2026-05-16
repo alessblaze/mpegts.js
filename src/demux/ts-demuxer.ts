@@ -96,6 +96,12 @@ type AudioData = {
     data: MP3Data;
 }
 
+type StashedAudioPayload = {
+    codec: 'aac' | 'aac-loas' | 'ac-3' | 'ec-3' | 'opus' | 'mp3';
+    data: Uint8Array;
+    pts: number;
+};
+
 class TSDemuxer extends BaseDemuxer {
 
     private readonly TAG: string = 'TSDemuxer';
@@ -155,7 +161,7 @@ class TSDemuxer extends BaseDemuxer {
     private video_metadata_changed_ = false;
     private audio_metadata_changed_ = false;
     private video_keyframe_seen_after_init_ = false;
-    private stashed_audio_before_video_init_: Array<{data: Uint8Array, pts: number}> = [];
+    private stashed_audio_before_video_init_: Array<StashedAudioPayload> = [];
     private _last_dispatch_block_reason_: string = '';
     private video_init_dispatch_time_: number = 0;
     // The PID currently being decoded as the active audio stream.
@@ -298,6 +304,8 @@ class TSDemuxer extends BaseDemuxer {
         (this.audio_track_ as any).length = 0;
         this.audio_last_sample_pts_ = undefined;
         this.aac_last_incomplete_data_ = null;
+        this.loas_previous_frame = null;
+        this.stashed_audio_before_video_init_ = [];
     }
 
     /** Store a PID preference before PMT arrives — applied by auto-fallback on first parse. */
@@ -1450,6 +1458,10 @@ class TSDemuxer extends BaseDemuxer {
         }
     }
 
+    private stashAudioBeforeVideoInit(codec: StashedAudioPayload['codec'], data: Uint8Array, pts: number) {
+        this.stashed_audio_before_video_init_.push({codec, data, pts});
+    }
+
     private dispatchAudioVideoMediaSegment() {
         // Flush any audio that was stashed before video init dispatched.
         if (this.video_init_segment_dispatched_ && this.stashed_audio_before_video_init_.length > 0) {
@@ -1458,7 +1470,26 @@ class TSDemuxer extends BaseDemuxer {
             const stash = this.stashed_audio_before_video_init_;
             this.stashed_audio_before_video_init_ = [];
             for (const item of stash) {
-                this.parseADTSAACPayload(item.data, item.pts);
+                switch (item.codec) {
+                    case 'aac':
+                        this.parseADTSAACPayload(item.data, item.pts);
+                        break;
+                    case 'aac-loas':
+                        this.parseLOASAACPayload(item.data, item.pts);
+                        break;
+                    case 'ac-3':
+                        this.parseAC3Payload(item.data, item.pts);
+                        break;
+                    case 'ec-3':
+                        this.parseEAC3Payload(item.data, item.pts);
+                        break;
+                    case 'opus':
+                        this.parseOpusPayload(item.data, item.pts);
+                        break;
+                    case 'mp3':
+                        this.parseMP3Payload(item.data, item.pts);
+                        break;
+                }
             }
         }
         const initReady = this.isInitSegmentDispatched();
@@ -1511,7 +1542,7 @@ class TSDemuxer extends BaseDemuxer {
         if (this.has_video_ && !this.video_init_segment_dispatched_) {
             // Video init not dispatched yet — stash instead of dropping so audio
             // init can be dispatched once video init fires (avoids deadlock).
-            this.stashed_audio_before_video_init_.push({data, pts});
+            this.stashAudioBeforeVideoInit('aac', data, pts);
             return;
         }
 
@@ -1603,8 +1634,9 @@ class TSDemuxer extends BaseDemuxer {
 
     private parseLOASAACPayload(data: Uint8Array, pts: number) {
         if (this.has_video_ && !this.video_init_segment_dispatched_) {
-            // If first video IDR frame hasn't been detected,
-            // Wait for first IDR frame and video init segment being dispatched
+            // Preserve LOAS AAC until video init is ready so we don't lose
+            // the first audio payloads on fallback streams.
+            this.stashAudioBeforeVideoInit('aac-loas', data, pts);
             return;
         }
 
@@ -1697,8 +1729,7 @@ class TSDemuxer extends BaseDemuxer {
 
     private parseAC3Payload(data: Uint8Array, pts: number) {
         if (this.has_video_ && !this.video_init_segment_dispatched_) {
-            // If first video IDR frame hasn't been detected,
-            // Wait for first IDR frame and video init segment being dispatched
+            this.stashAudioBeforeVideoInit('ac-3', data, pts);
             return;
         }
 
@@ -1771,8 +1802,7 @@ class TSDemuxer extends BaseDemuxer {
 
     private parseEAC3Payload(data: Uint8Array, pts: number) {
         if (this.has_video_ && !this.video_init_segment_dispatched_) {
-            // If first video IDR frame hasn't been detected,
-            // Wait for first IDR frame and video init segment being dispatched
+            this.stashAudioBeforeVideoInit('ec-3', data, pts);
             return;
         }
 
@@ -1845,8 +1875,7 @@ class TSDemuxer extends BaseDemuxer {
 
     private parseOpusPayload(data: Uint8Array, pts: number) {
         if (this.has_video_ && !this.video_init_segment_dispatched_) {
-            // If first video IDR frame hasn't been detected,
-            // Wait for first IDR frame and video init segment being dispatched
+            this.stashAudioBeforeVideoInit('opus', data, pts);
             return;
         }
 
@@ -1910,8 +1939,7 @@ class TSDemuxer extends BaseDemuxer {
 
     private parseMP3Payload(data: Uint8Array, pts: number) {
         if (this.has_video_ && !this.video_init_segment_dispatched_) {
-            // If first video IDR frame hasn't been detected,
-            // Wait for first IDR frame and video init segment being dispatched
+            this.stashAudioBeforeVideoInit('mp3', data, pts);
             return;
         }
 
@@ -2001,6 +2029,7 @@ class TSDemuxer extends BaseDemuxer {
         };
         this.audio_track_.samples.push(mp3_sample);
         this.audio_track_.length += data.byteLength;
+        this.audio_last_sample_pts_ = mp3_sample.pts;
     }
 
     private detectAudioMetadataChange(sample: AudioData): boolean {
@@ -2147,6 +2176,7 @@ class TSDemuxer extends BaseDemuxer {
             meta.codec = 'mp3';
             meta.originalCodec = 'mp3';
             meta.config = undefined;
+            meta.refSampleDuration = 1152 / meta.audioSampleRate * meta.timescale;
         }
 
         if (this.audio_init_segment_dispatched_ == false) {
@@ -2155,7 +2185,7 @@ class TSDemuxer extends BaseDemuxer {
 
         this.onTrackMetadata('audio', meta);
         this.audio_init_segment_dispatched_ = true;
-        this.video_metadata_changed_ = false;
+        this.audio_metadata_changed_ = false;
 
         // notify new MediaInfo
         let mi = this.media_info_;
