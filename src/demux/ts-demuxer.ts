@@ -164,6 +164,7 @@ class TSDemuxer extends BaseDemuxer {
     private stashed_audio_before_video_init_: Array<StashedAudioPayload> = [];
     private _last_dispatch_block_reason_: string = '';
     private video_init_dispatch_time_: number = 0;
+    private audio_startup_failed_: boolean = false;
     private audio_wrap_log_count_: number = 0;
     private audio_stale_drop_log_count_: number = 0;
     private audio_startup_align_log_count_: number = 0;
@@ -299,12 +300,7 @@ class TSDemuxer extends BaseDemuxer {
         }
         Log.v(this.TAG, `[muvie] selectAudioPid: switching active audio PID to ${pid || '(default)'}`);
         this.active_audio_pid_ = pid;
-        pmt.common_pids.adts_aac = undefined;
-        pmt.common_pids.loas_aac = undefined;
-        pmt.common_pids.ac3 = undefined;
-        pmt.common_pids.eac3 = undefined;
-        pmt.common_pids.opus = undefined;
-        pmt.common_pids.mp3 = undefined;
+        this.clearActiveAudioPids(pmt);
 
         if (entry) {
             if (entry.codec === 'aac') pmt.common_pids.adts_aac = entry.pid;
@@ -323,6 +319,7 @@ class TSDemuxer extends BaseDemuxer {
         this.aac_last_incomplete_data_ = null;
         this.loas_previous_frame = null;
         this.stashed_audio_before_video_init_ = [];
+        this.audio_startup_failed_ = false;
     }
 
     /** Store a PID preference before PMT arrives — applied by auto-fallback on first parse. */
@@ -1058,8 +1055,12 @@ class TSDemuxer extends BaseDemuxer {
             if (pmt.common_pids.h264 || pmt.common_pids.h265 || pmt.common_pids.av1) {
                 this.has_video_ = true;
             }
-            if (pmt.common_pids.adts_aac || pmt.common_pids.loas_aac || pmt.common_pids.ac3 || pmt.common_pids.opus || pmt.common_pids.mp3) {
+            if (pmt.common_pids.adts_aac || pmt.common_pids.loas_aac || pmt.common_pids.ac3 || pmt.common_pids.eac3 || pmt.common_pids.opus || pmt.common_pids.mp3) {
                 this.has_audio_ = true;
+            }
+            if (this.audio_startup_failed_) {
+                this.clearActiveAudioPids(pmt);
+                this.has_audio_ = false;
             }
             // Also index timed_id3 pids as subtitle tracks
             for (const pid of Object.keys(pmt.timed_id3_pids).map(Number)) {
@@ -1539,6 +1540,33 @@ class TSDemuxer extends BaseDemuxer {
         this.stashed_audio_before_video_init_.push({codec, data, pts});
     }
 
+    private clearActiveAudioPids(pmt: PMT | undefined): void {
+        if (!pmt) {
+            return;
+        }
+        pmt.common_pids.adts_aac = undefined;
+        pmt.common_pids.loas_aac = undefined;
+        pmt.common_pids.ac3 = undefined;
+        pmt.common_pids.eac3 = undefined;
+        pmt.common_pids.opus = undefined;
+        pmt.common_pids.mp3 = undefined;
+    }
+
+    private abandonBrokenAudioStartup(reason: string): void {
+        if (this.audio_startup_failed_) {
+            return;
+        }
+        this.audio_startup_failed_ = true;
+        this.has_audio_ = false;
+        this.clearActiveAudioPids(this.pmt_);
+        this.stashed_audio_before_video_init_ = [];
+        this.aac_last_incomplete_data_ = null;
+        this.loas_previous_frame = null;
+        (this.audio_track_ as any).samples = [];
+        (this.audio_track_ as any).length = 0;
+        Log.w(this.TAG, `[muvie] Audio init never became ready — continuing as video-only (${reason})`);
+    }
+
     private dispatchAudioVideoMediaSegment() {
         // Flush any audio that was stashed before video init dispatched.
         if (this.video_init_segment_dispatched_ && this.stashed_audio_before_video_init_.length > 0) {
@@ -1582,7 +1610,19 @@ class TSDemuxer extends BaseDemuxer {
                 }
             }
         }
-        const initReady = this.isInitSegmentDispatched();
+        let initReady = this.isInitSegmentDispatched();
+        if (!initReady
+                && this.has_video_
+                && this.has_audio_
+                && this.video_init_segment_dispatched_
+                && !this.audio_init_segment_dispatched_
+                && this.video_init_dispatch_time_ > 0) {
+            const elapsed = Date.now() - this.video_init_dispatch_time_;
+            if (elapsed > 6000 && this.video_track_.samples.length > 0) {
+                this.abandonBrokenAudioStartup(`waited ${elapsed}ms after video init`);
+                initReady = this.isInitSegmentDispatched();
+            }
+        }
         if (!initReady) {
             const reason = `waiting for init (video=${this.video_init_segment_dispatched_} audio=${this.audio_init_segment_dispatched_})`;
             if (this._last_dispatch_block_reason_ !== reason) {

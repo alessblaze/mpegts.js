@@ -70,7 +70,7 @@ class StartupStallJumper {
         const buffered = media.buffered;
 
         if (is_stalled || !this._canplay_received || media.readyState < 2) {  // HAVE_CURRENT_DATA
-            if (buffered.length > 0 && media.currentTime < buffered.start(0)) {
+            if (this._canplay_received && buffered.length > 0 && media.currentTime < buffered.start(0)) {
                 Log.w(this.TAG, `Playback seems stuck at ${media.currentTime}, seek to ${buffered.start(0)}`);
                 this._on_direct_seek(buffered.start(0));
                 this._media_element.removeEventListener('progress', this.e.onMediaProgress);
