@@ -1,7 +1,6 @@
 const webpack = require('webpack');
 const packagejson = require("./package.json");
 const path = require('path');
-const TerserPlugin = require('terser-webpack-plugin');
 
 module.exports = {
     entry: './src/index.js',
@@ -15,7 +14,11 @@ module.exports = {
     devtool: 'source-map',
 
     resolve: {
-        extensions: ['.ts', '.tsx', '.js', '.json']
+        extensions: ['.ts', '.tsx', '.js', '.json'],
+        fallback: {
+            'fs': false,
+            'path': false
+        }
     },
 
     plugins: [
@@ -23,19 +26,6 @@ module.exports = {
           __VERSION__: JSON.stringify(packagejson.version)
         })
     ],
-
-    node: {
-        'fs': 'empty',
-        'path': 'empty'
-    },
-
-    optimization: {
-        minimizer: [
-            new TerserPlugin({
-                sourceMap: true
-            })
-        ]
-    },
 
     module: {
         rules: [
@@ -54,11 +44,12 @@ module.exports = {
 
     devServer: {
         static: ['demo'],
-        proxy: {
-            '/dist': {
+        proxy: [
+            {
+                context: ['/dist'],
                 target: 'http://localhost:8080',
                 pathRewrite: {'^/dist' : ''}
             }
-        }
+        ]
     }
 };
