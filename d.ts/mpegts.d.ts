@@ -318,6 +318,31 @@ declare namespace Mpegts {
         new (mediaDataSource: MediaDataSource, config?: Config): T;
     }
 
+    interface SEIData {
+        type: number;
+        size: number;
+        uuid: Uint8Array;
+        user_data: Uint8Array;
+        pts?: number;
+    }
+
+    interface TrackInfo {
+        pid: number;
+        codec: string;
+        lang?: string;
+    }
+
+    interface SubtitleTrackInfo {
+        pid: number;
+        type: string;
+        lang?: string;
+    }
+
+    interface TracksUpdatedInfo {
+        audioTracks: TrackInfo[];
+        subtitleTracks: SubtitleTrackInfo[];
+    }
+
     interface Player {
         destroy(): void;
         on(event: string, listener: (...args: any[]) => void): void;
@@ -328,6 +353,7 @@ declare namespace Mpegts {
         unload(): void;
         play(): Promise<void> | void;
         pause(): void;
+        switchAudioPid(pid: number): void;
         type: string;
         buffered: TimeRanges;
         duration: number;
@@ -431,9 +457,12 @@ declare namespace Mpegts {
         SYNCHRONOUS_KLV_METADATA_ARRIVED: string;
         ASYNCHRONOUS_KLV_METADATA_ARRIVED: string;
         SMPTE2038_METADATA_ARRIVED: string;
+        SEI_ARRIVED: string;
+        SCTE35_METADATA_ARRIVED: string;
         PES_PRIVATE_DATA_DESCRIPTOR: string;
         PES_PRIVATE_DATA_ARRIVED: string;
         STATISTICS_INFO: string;
+        TRACKS_UPDATED: string;
     }
 
     interface ErrorTypes {
