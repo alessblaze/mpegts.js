@@ -271,16 +271,25 @@ class TSDemuxer extends BaseDemuxer {
         }
         Log.v(this.TAG, `[muvie] selectAudioPid: switching active audio PID to ${pid || '(default)'}`);
         this.active_audio_pid_ = pid;
-        // Rebuild common_pids.adts_aac to the chosen pid so the routing filter passes it
-        if (pid !== 0 && this.pmt_) {
-            const entry = this.pmt_.all_audio_pids.find(a => a.pid === pid);
-            if (entry) {
-                // Re-point the active common_pid slot to the new pid
-                if (entry.codec === 'aac')      this.pmt_.common_pids.adts_aac = pid;
-                else if (entry.codec === 'ac3') this.pmt_.common_pids.ac3 = pid;
-                else if (entry.codec === 'eac3') this.pmt_.common_pids.eac3 = pid;
-                else if (entry.codec === 'mp3') this.pmt_.common_pids.mp3 = pid;
-            }
+        const pmt = this.pmt_;
+        pmt.common_pids.adts_aac = undefined;
+        pmt.common_pids.loas_aac = undefined;
+        pmt.common_pids.ac3 = undefined;
+        pmt.common_pids.eac3 = undefined;
+        pmt.common_pids.opus = undefined;
+        pmt.common_pids.mp3 = undefined;
+
+        let entry = pid !== 0 ? pmt.all_audio_pids.find(a => a.pid === pid) : undefined;
+        if (!entry) {
+            entry = pmt.all_audio_pids[0];
+        }
+        if (entry) {
+            if (entry.codec === 'aac') pmt.common_pids.adts_aac = entry.pid;
+            else if (entry.codec === 'aac-loas') pmt.common_pids.loas_aac = entry.pid;
+            else if (entry.codec === 'ac3') pmt.common_pids.ac3 = entry.pid;
+            else if (entry.codec === 'eac3') pmt.common_pids.eac3 = entry.pid;
+            else if (entry.codec === 'opus') pmt.common_pids.opus = entry.pid;
+            else if (entry.codec === 'mp3') pmt.common_pids.mp3 = entry.pid;
         }
         // Reset audio init so the new PID's audio spec config is properly dispatched
         this.audio_init_segment_dispatched_ = false;
