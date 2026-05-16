@@ -1076,6 +1076,11 @@ class TSDemuxer extends BaseDemuxer {
                     pmt.common_pids.eac3 = 0;
                     this.selectAudioPid(fallback.pid);
                 }
+            } else if (is_new_pmt) {
+                const cfgPref = this.config_?.preferredAudioPid;
+                if (cfgPref && pmt.all_audio_pids.some(a => a.pid === cfgPref)) {
+                    this.selectAudioPid(cfgPref);
+                }
             }
             // Emit available track info to the player layer
             if (is_new_pmt && this.onTracksUpdated && (pmt.all_audio_pids.length > 1 || pmt.subtitle_pids.length > 0)) {
