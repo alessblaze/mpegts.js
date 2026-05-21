@@ -89,6 +89,8 @@ In multipart mode, `duration` `filesize` `url` field in `MediaDataSource` struct
 | `autoCleanupMinBackwardDuration` | `number`  | `2 * 60`                     | Indicates the duration in seconds to reserve for backward buffer when doing auto cleanup. |
 | `fixAudioTimestampGap`           | `boolean` | `true`                       | Fill silent audio frames to avoid a/v unsync when detect large audio timestamp gap. |
 | `preferredAudioPid?`             | `number`  | `0`                          | Preferred audio PID for MPEG-TS live streams. When the PMT is parsed, the auto-fallback logic will select this PID if it exists among the available audio tracks. Set to `0` (default) for automatic selection of the first compatible track. |
+| `audioTimestampCorrectionPolicy?` | `string` | `'strict'`                  | Controls how raw MPEG-TS audio timestamps are corrected when stale pre-wrap or otherwise inconsistent audio PTS values appear. Supported values: `'strict'`, `'lenient'`, `'off'`. |
+| `audioTimestampCorrectionThresholdMs?` | `number` | `5000`               | Threshold in milliseconds used for startup audio timestamp anchoring and for `lenient` stale/pre-wrap timestamp acceptance. |
 | `accurateSeek?`                  | `boolean` | `false`                      | Accurate seek to any frame, not limited to video IDR frame, but may a bit slower. Available on `Chrome > 50`, `FireFox` and `Safari`. |
 | `seekType?`                      | `string`  | `'range'`                    | `'range'` use range request to seek, or `'param'` add params into url to indicate request range. |
 | `seekParamStart?`                | `string`  | `'bstart'`                   | Indicates seek start parameter name for `seekType = 'param'` |
@@ -101,6 +103,20 @@ In multipart mode, `duration` `filesize` `url` field in `MediaDataSource` struct
 
 
 [Referrer Policy]: https://w3c.github.io/webappsec-referrer-policy/#referrer-policy
+
+#### Audio Timestamp Correction Policy
+
+The `audioTimestampCorrectionPolicy` config is intended for problematic live MPEG-TS streams where audio PTS values may jump backward across the MPEG timestamp wrap boundary or arrive with inconsistent startup timing.
+
+- `strict`
+  - default and safest mode
+  - drops stale pre-wrap audio timestamps
+- `lenient`
+  - accepts corrected stale/pre-wrap timestamps when the corrected delta is within `audioTimestampCorrectionThresholdMs`
+- `off`
+  - disables stale pre-wrap dropping entirely
+
+`audioTimestampCorrectionThresholdMs` is also used during startup audio anchoring when the first audio sample is far away from the startup video anchor.
 
 ### mpegts.isSupported()
 ```js
