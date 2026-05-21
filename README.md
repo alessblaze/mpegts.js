@@ -14,6 +14,17 @@ mpegts.js works by transmuxing MPEG2-TS stream into ISO BMFF (Fragmented MP4) se
 [Media Source Extensions]: https://w3c.github.io/media-source/
 
 ## News
+- **v1.8.4** (alessmicrosystems fork)
+
+    **Configurable audio timestamp correction policy:**
+    - Added `audioTimestampCorrectionPolicy` with `strict`, `lenient`, and `off` modes
+    - Added `audioTimestampCorrectionThresholdMs` for tuning startup audio anchoring and lenient stale pre-wrap acceptance
+    - Keeps existing safe behavior by default while allowing problematic live MPEG-TS streams to be relaxed per deployment
+
+    **Safer timestamp handling diagnostics:**
+    - Logs accepted stale pre-wrap audio timestamp corrections in lenient/off modes
+    - Continues rate-limited warnings for dropped stale timestamps and startup anchor normalization
+
 - **v1.8.3** (alessmicrosystems fork)
 
     **Audio startup failure recovery:**

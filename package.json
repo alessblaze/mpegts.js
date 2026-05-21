@@ -1,6 +1,6 @@
 {
   "name": "@alessmicrosystems/mpegts.js",
-  "version": "1.8.3",
+  "version": "1.8.4",
   "description": "HTML5 MPEG2-TS Stream Player",
   "main": "./dist/mpegts.js",
   "types": "./d.ts/mpegts.d.ts",
