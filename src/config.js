@@ -25,6 +25,8 @@ export const defaultConfig = {
     isLive: false,
 
     preferredAudioPid: 0,
+    audioTimestampCorrectionPolicy: 'strict',
+    audioTimestampCorrectionThresholdMs: 5000,
 
     liveBufferLatencyChasing: false,
     liveBufferLatencyChasingOnPaused: false,

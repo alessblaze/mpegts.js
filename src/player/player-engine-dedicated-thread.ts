@@ -402,7 +402,7 @@ class PlayerEngineDedicatedThread implements PlayerEngine {
                 } else if (packet.event == TransmuxingEvents.STATISTICS_INFO) {
                     const packet = message_packet as WorkerMessagePacketTransmuxingEventInfo;
                     this._statistics_info = this._fillStatisticsInfo(packet.info);
-                    this._emitter.emit(PlayerEvents.STATISTICS_INFO, Object.assign({}, packet.info));
+                    this._emitter.emit(PlayerEvents.STATISTICS_INFO, Object.assign({}, this._statistics_info));
                 } else if (packet.event == TransmuxingEvents.RECOMMEND_SEEKPOINT) {
                     const packet = message_packet as WorkerMessagePacketTransmuxingEventRecommendSeekpoint;
                     if (this._media_element && !this._config.accurateSeek) {

@@ -167,6 +167,7 @@ class TSDemuxer extends BaseDemuxer {
     private audio_startup_failed_: boolean = false;
     private audio_wrap_log_count_: number = 0;
     private audio_stale_drop_log_count_: number = 0;
+    private audio_stale_accept_log_count_: number = 0;
     private audio_startup_align_log_count_: number = 0;
     private audio_startup_drop_log_count_: number = 0;
     private audio_startup_stash_trim_log_count_: number = 0;
@@ -1482,6 +1483,22 @@ class TSDemuxer extends BaseDemuxer {
         }
     }
 
+    private getAudioTimestampCorrectionPolicy(): 'strict' | 'lenient' | 'off' {
+        const configured = this.config_?.audioTimestampCorrectionPolicy;
+        if (configured === 'lenient' || configured === 'off') {
+            return configured;
+        }
+        return 'strict';
+    }
+
+    private getAudioTimestampCorrectionThresholdMs(): number {
+        const configured = this.config_?.audioTimestampCorrectionThresholdMs;
+        if (Number.isFinite(configured) && configured > 0) {
+            return configured;
+        }
+        return 5000;
+    }
+
     private normalizeIncomingAudioPtsMilliseconds(base_pts_ms: number | undefined): number | undefined {
         if (base_pts_ms == undefined || this.audio_last_sample_pts_ == undefined) {
             return base_pts_ms;
@@ -1500,9 +1517,24 @@ class TSDemuxer extends BaseDemuxer {
         }
 
         if (base_pts_ms > this.audio_last_sample_pts_ + halfWrapMs) {
+            const policy = this.getAudioTimestampCorrectionPolicy();
+            let normalized = base_pts_ms;
+            while (normalized > this.audio_last_sample_pts_ + halfWrapMs) {
+                normalized -= fullWrapMs;
+            }
+            if (policy !== 'strict') {
+                const deltaMs = Math.abs(normalized - this.audio_last_sample_pts_);
+                if (policy === 'off' || deltaMs <= this.getAudioTimestampCorrectionThresholdMs()) {
+                    this.audio_stale_accept_log_count_++;
+                    if (this.audio_stale_accept_log_count_ <= 3 || this.audio_stale_accept_log_count_ % 25 === 0) {
+                        Log.w(this.TAG, `[muvie] Accepted stale pre-wrap audio timestamp (#${this.audio_stale_accept_log_count_}) ${base_pts_ms}ms -> ${normalized}ms (last=${this.audio_last_sample_pts_}ms policy=${policy})`);
+                    }
+                    return normalized;
+                }
+            }
             this.audio_stale_drop_log_count_++;
             if (this.audio_stale_drop_log_count_ <= 3 || this.audio_stale_drop_log_count_ % 25 === 0) {
-                Log.w(this.TAG, `[muvie] Dropping stale pre-wrap audio timestamp (#${this.audio_stale_drop_log_count_}) ${base_pts_ms}ms (last=${this.audio_last_sample_pts_}ms)`);
+                Log.w(this.TAG, `[muvie] Dropping stale pre-wrap audio timestamp (#${this.audio_stale_drop_log_count_}) ${base_pts_ms}ms (last=${this.audio_last_sample_pts_}ms policy=${policy})`);
             }
             return undefined;
         }
@@ -1525,7 +1557,7 @@ class TSDemuxer extends BaseDemuxer {
         if (anchor == undefined) {
             return base_pts_ms;
         }
-        const maxStartupDriftMs = 5000;
+        const maxStartupDriftMs = this.getAudioTimestampCorrectionThresholdMs();
         const drift = base_pts_ms - anchor;
         if (Math.abs(drift) > maxStartupDriftMs) {
             this.audio_startup_align_log_count_++;

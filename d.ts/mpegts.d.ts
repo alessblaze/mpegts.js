@@ -78,6 +78,22 @@ declare namespace Mpegts {
         preferredAudioPid?: number;
 
         /**
+         * @desc Controls how raw MPEG-TS audio timestamps are corrected when a stream has
+         *       stale pre-wrap or otherwise inconsistent audio PTS values.
+         *       `strict` keeps the existing safe default behavior, `lenient` accepts small
+         *       corrected drifts, and `off` disables stale pre-wrap dropping entirely.
+         * @defaultvalue 'strict'
+         */
+        audioTimestampCorrectionPolicy?: 'strict' | 'lenient' | 'off';
+
+        /**
+         * @desc Threshold in milliseconds used for startup audio timestamp correction and
+         *       lenient stale-pre-wrap acceptance.
+         * @defaultvalue 5000
+         */
+        audioTimestampCorrectionThresholdMs?: number;
+
+        /**
          * @desc Chasing the live stream latency caused by the internal buffer in HTMLMediaElement
          *       `isLive` should also be set to `true`
          * @defaultvalue false

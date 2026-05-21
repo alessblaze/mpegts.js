@@ -128,6 +128,7 @@ class PlayerEngineMainThread implements PlayerEngine {
         this._mse_controller.on(MSEEvents.ERROR, this._onMSEError.bind(this));
         this._mse_controller.on(MSEEvents.START_STREAMING, this._onMSEStartStreaming.bind(this));
         this._mse_controller.on(MSEEvents.END_STREAMING, this._onMSEEndStreaming.bind(this));
+        this._mse_controller.on(MSEEvents.CODEC_CHANGE, this._onMSECodecChange.bind(this));
 
         this._mse_controller.initialize({
             getCurrentTime: () => this._media_element.currentTime,
@@ -215,7 +216,7 @@ class PlayerEngineMainThread implements PlayerEngine {
         });
         this._transmuxer.on(TransmuxingEvents.STATISTICS_INFO, (statInfo: any) => {
             this._statistics_info = this._fillStatisticsInfo(statInfo);
-            this._emitter.emit(PlayerEvents.STATISTICS_INFO, Object.assign({}, statInfo));
+            this._emitter.emit(PlayerEvents.STATISTICS_INFO, Object.assign({}, this._statistics_info));
         });
         this._transmuxer.on(TransmuxingEvents.RECOMMEND_SEEKPOINT, (milliseconds: number) => {
             if (this._media_element && !this._config.accurateSeek) {
@@ -390,11 +391,15 @@ class PlayerEngineMainThread implements PlayerEngine {
 
     private _onMSEEndStreaming(): void {
         if (this._config.isLive) {
-            // For live stream, we do not suspend / resume transmuxer
             return;
         }
         Log.v(this.TAG, 'Suspend transmuxing task due to ManagedMediaSource onEndStreaming');
         this._loading_controller.suspendTransmuxer();
+    }
+
+    private _onMSECodecChange(info: { type: string; oldMime: string; newMime: string }): void {
+        Log.v(this.TAG, `Codec change detected: ${info.type} from ${info.oldMime} to ${info.newMime}`);
+        this._emitter.emit(PlayerEvents.CODEC_CHANGE, info);
     }
 
     private _onMediaLoadedMetadata(e: any): void {

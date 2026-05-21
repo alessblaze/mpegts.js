@@ -251,6 +251,7 @@ class MSEController {
                 }
             } else {
                 Log.v(this.TAG, `Notice: ${is.type} mimeType changed, origin: ${this._mimeTypes[is.type]}, target: ${mimeType}`);
+                this._emitter.emit(MSEEvents.CODEC_CHANGE, { type: is.type, oldMime: this._mimeTypes[is.type], newMime: mimeType });
             }
             this._mimeTypes[is.type] = mimeType;
         }
