@@ -378,91 +378,108 @@ class MP4Remuxer {
             }
 
             if (this._audioMeta.codec !== 'mp3' && refSampleDuration != null) {
-                // for AAC codec, we need to keep dts increase based on refSampleDuration
-                let curRefDts = originalDts;
-                const maxAudioFramesDrift = 3;
-                if (this._audioNextDts) {
-                    curRefDts = this._audioNextDts;
-                }
-
-                dtsCorrection = originalDts - curRefDts;
-                if (dtsCorrection <= -maxAudioFramesDrift * refSampleDuration) {
-                    if (Math.abs(dtsCorrection) > hardDiscontinuityThreshold) {
-                        if (this._shouldLogLimited('_audioDiscontinuityResetLogCount')) {
-                            Log.w(this.TAG, `Audio discontinuity reset (#${this._audioDiscontinuityResetLogCount}): backward ${Math.round(dtsCorrection)} ms, codec=${this._audioMeta.codec}`);
-                        }
-                        dts = Math.floor(originalDts);
-                        sampleDuration = Math.floor(refSampleDuration);
-                        this._audioNextDts = dts + sampleDuration;
+                if (this._config && this._config.audioTimestampCorrectionPolicy === 'off') {
+                    // Caller explicitly disabled timestamp correction: do not drop, fill,
+                    // or hard-reset samples. Keep the original DTS and compute a valid
+                    // MP4 duration from adjacent source samples where possible.
+                    dts = Math.floor(originalDts);
+                    if (i !== samples.length - 1) {
+                        let nextOriginalDts = samples[i + 1].dts - this._dtsBase;
+                        sampleDuration = Math.floor(nextOriginalDts) - dts;
+                    } else if (lastSample != null) {
+                        let nextOriginalDts = lastSample.dts - this._dtsBase;
+                        sampleDuration = Math.floor(nextOriginalDts) - dts;
+                    } else if (mp4Samples.length >= 1) {
+                        sampleDuration = mp4Samples[mp4Samples.length - 1].duration;
                     } else {
-                    // If we're overlapping by more than maxAudioFramesDrift number of frame, drop this sample
-                        Log.w(this.TAG, `Dropping 1 audio frame (originalDts: ${originalDts} ms ,curRefDts: ${curRefDts} ms)  due to dtsCorrection: ${dtsCorrection} ms overlap.`);
-                        continue;
-                    }
-                }
-                else if (dtsCorrection >= maxAudioFramesDrift * refSampleDuration && this._fillAudioTimestampGap && !Browser.safari) {
-                    // Silent frame generation, if large timestamp gap detected && config.fixAudioTimestampGap
-                    let frameCount = Math.floor(dtsCorrection / refSampleDuration);
-                    if (frameCount > 180 || dtsCorrection > hardDiscontinuityThreshold) {
-                        if (this._shouldLogLimited('_audioDiscontinuityResetLogCount')) {
-                            Log.w(this.TAG, `Audio discontinuity reset (#${this._audioDiscontinuityResetLogCount}): forward ${Math.round(dtsCorrection)} ms, frames=${frameCount}, codec=${this._audioMeta.codec}`);
-                        }
-                        dts = Math.floor(originalDts);
                         sampleDuration = Math.floor(refSampleDuration);
-                        this._audioNextDts = dts + sampleDuration;
-                    } else {
-                    needFillSilentFrames = true;
-                    // We need to insert silent frames to fill timestamp gap
-                    if (this._shouldLogLimited('_audioGapFillLogCount')) {
-                        Log.w(this.TAG, `Audio gap fill (#${this._audioGapFillLogCount}): correction=${Math.round(dtsCorrection)} ms, frames=${frameCount}, codec=${this._audioMeta.codec}`);
                     }
-
-
-                    dts = Math.floor(curRefDts);
-                    sampleDuration = Math.floor(curRefDts + refSampleDuration) - dts;
-
-                    let silentUnit = AAC.getSilentFrame(this._audioMeta.originalCodec, this._audioMeta.channelCount);
-                    if (silentUnit == null) {
-                        Log.w(this.TAG, 'Unable to generate silent frame for ' +
-                            `${this._audioMeta.originalCodec} with ${this._audioMeta.channelCount} channels, repeat last frame`);
-                        // Repeat last frame
-                        silentUnit = unit;
+                    if (sampleDuration <= 0) {
+                        sampleDuration = Math.floor(refSampleDuration);
                     }
-                    silentFrames = [];
-
-                    for (let j = 0; j < frameCount; j++) {
-                        curRefDts = curRefDts + refSampleDuration;
-                        let intDts = Math.floor(curRefDts);  // change to integer
-                        let intDuration = Math.floor(curRefDts + refSampleDuration) - intDts;
-                        let frame = {
-                            dts: intDts,
-                            pts: intDts,
-                            cts: 0,
-                            unit: silentUnit,
-                            size: silentUnit.byteLength,
-                            duration: intDuration,  // wait for next sample
-                            originalDts: originalDts,
-                            flags: {
-                                isLeading: 0,
-                                dependsOn: 1,
-                                isDependedOn: 0,
-                                hasRedundancy: 0
-                            }
-                        };
-                        silentFrames.push(frame);
-                        mdatBytes += frame.size;
-
-                    }
-
-                    this._audioNextDts = curRefDts + refSampleDuration;
-                    }
-
+                    this._audioNextDts = originalDts + sampleDuration;
                 } else {
+                    // for AAC codec, we need to keep dts increase based on refSampleDuration
+                    let curRefDts = originalDts;
+                    const maxAudioFramesDrift = 3;
+                    if (this._audioNextDts) {
+                        curRefDts = this._audioNextDts;
+                    }
 
-                    dts = Math.floor(curRefDts);
-                    sampleDuration = Math.floor(curRefDts + refSampleDuration) - dts;
-                    this._audioNextDts = curRefDts + refSampleDuration;
+                    dtsCorrection = originalDts - curRefDts;
+                    if (dtsCorrection <= -maxAudioFramesDrift * refSampleDuration) {
+                        if (Math.abs(dtsCorrection) > hardDiscontinuityThreshold) {
+                            if (this._shouldLogLimited('_audioDiscontinuityResetLogCount')) {
+                                Log.w(this.TAG, `Audio discontinuity reset (#${this._audioDiscontinuityResetLogCount}): backward ${Math.round(dtsCorrection)} ms, codec=${this._audioMeta.codec}`);
+                            }
+                            dts = Math.floor(originalDts);
+                            sampleDuration = Math.floor(refSampleDuration);
+                            this._audioNextDts = dts + sampleDuration;
+                        } else {
+                            // If we're overlapping by more than maxAudioFramesDrift number of frame, drop this sample.
+                            Log.w(this.TAG, `Dropping 1 audio frame (originalDts: ${originalDts} ms ,curRefDts: ${curRefDts} ms)  due to dtsCorrection: ${dtsCorrection} ms overlap.`);
+                            continue;
+                        }
+                    }
+                    else if (dtsCorrection >= maxAudioFramesDrift * refSampleDuration && this._fillAudioTimestampGap && !Browser.safari) {
+                        // Silent frame generation, if large timestamp gap detected && config.fixAudioTimestampGap
+                        let frameCount = Math.floor(dtsCorrection / refSampleDuration);
+                        if (frameCount > 180 || dtsCorrection > hardDiscontinuityThreshold) {
+                            if (this._shouldLogLimited('_audioDiscontinuityResetLogCount')) {
+                                Log.w(this.TAG, `Audio discontinuity reset (#${this._audioDiscontinuityResetLogCount}): forward ${Math.round(dtsCorrection)} ms, frames=${frameCount}, codec=${this._audioMeta.codec}`);
+                            }
+                            dts = Math.floor(originalDts);
+                            sampleDuration = Math.floor(refSampleDuration);
+                            this._audioNextDts = dts + sampleDuration;
+                        } else {
+                            needFillSilentFrames = true;
+                            // We need to insert silent frames to fill timestamp gap
+                            if (this._shouldLogLimited('_audioGapFillLogCount')) {
+                                Log.w(this.TAG, `Audio gap fill (#${this._audioGapFillLogCount}): correction=${Math.round(dtsCorrection)} ms, frames=${frameCount}, codec=${this._audioMeta.codec}`);
+                            }
 
+                            dts = Math.floor(curRefDts);
+                            sampleDuration = Math.floor(curRefDts + refSampleDuration) - dts;
+
+                            let silentUnit = AAC.getSilentFrame(this._audioMeta.originalCodec, this._audioMeta.channelCount);
+                            if (silentUnit == null) {
+                                Log.w(this.TAG, 'Unable to generate silent frame for ' +
+                                    `${this._audioMeta.originalCodec} with ${this._audioMeta.channelCount} channels, repeat last frame`);
+                                // Repeat last frame
+                                silentUnit = unit;
+                            }
+                            silentFrames = [];
+
+                            for (let j = 0; j < frameCount; j++) {
+                                curRefDts = curRefDts + refSampleDuration;
+                                let intDts = Math.floor(curRefDts);  // change to integer
+                                let intDuration = Math.floor(curRefDts + refSampleDuration) - intDts;
+                                let frame = {
+                                    dts: intDts,
+                                    pts: intDts,
+                                    cts: 0,
+                                    unit: silentUnit,
+                                    size: silentUnit.byteLength,
+                                    duration: intDuration,  // wait for next sample
+                                    originalDts: originalDts,
+                                    flags: {
+                                        isLeading: 0,
+                                        dependsOn: 1,
+                                        isDependedOn: 0,
+                                        hasRedundancy: 0
+                                    }
+                                };
+                                silentFrames.push(frame);
+                                mdatBytes += frame.size;
+                            }
+
+                            this._audioNextDts = curRefDts + refSampleDuration;
+                        }
+                    } else {
+                        dts = Math.floor(curRefDts);
+                        sampleDuration = Math.floor(curRefDts + refSampleDuration) - dts;
+                        this._audioNextDts = curRefDts + refSampleDuration;
+                    }
                 }
             } else {
                 // keep the original dts calculate algorithm for mp3
